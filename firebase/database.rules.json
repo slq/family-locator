@@ -1,0 +1,30 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "memberships": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid"
+      }
+    },
+    "families": {
+      "$familyId": {
+        "locations": {
+          ".read": "auth != null && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId",
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && newData.exists() && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId",
+            ".validate": "newData.hasChildren(['label', 'latitude', 'longitude', 'accuracyMeters', 'measuredAt', 'receivedAt', 'batteryPercent']) && (!data.exists() || newData.child('measuredAt').val() >= data.child('measuredAt').val())",
+            "label": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 40" },
+            "latitude": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
+            "longitude": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
+            "accuracyMeters": { ".validate": "newData.isNumber() && newData.val() > 0 && newData.val() <= 100000" },
+            "measuredAt": { ".validate": "newData.isNumber() && newData.val() >= now - 86400000 && newData.val() <= now + 60000" },
+            "receivedAt": { ".validate": "newData.isNumber() && newData.val() === now" },
+            "batteryPercent": { ".validate": "newData.isNumber() && newData.val() >= -1 && newData.val() <= 100" },
+            "$other": { ".validate": false }
+          }
+        }
+      }
+    }
+  }
+}

@@ -22,3 +22,29 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# Android / local configuration
+.gradle/
+.kotlin/
+**/build/
+local.properties
+.idea/
+*.iml
+*.jks
+*.keystore
+keystore.properties
+app/google-services.json
+*.apk
+*.aab
+# Gradle wrapper is source-controlled, unlike other JAR files.
+!gradle/wrapper/gradle-wrapper.jar
+
+# Firebase development tools and credentials
+node_modules/
+.firebase/
+*-debug.log*
+*service-account*.json
+*serviceAccount*.json
+.env
+.env.*
+!.env.example

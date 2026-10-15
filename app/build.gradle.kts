@@ -16,6 +16,12 @@ val localConfig = Properties().apply {
 }
 val mapsKey = providers.environmentVariable("MAPS_API_KEY")
     .orElse(localConfig.getProperty("MAPS_API_KEY", "")).get()
+val signingProperties = Properties().apply {
+    val config = rootProject.file("keystore.properties")
+    if (config.isFile) config.inputStream().use { load(it) }
+}
+fun signingValue(environment: String, property: String) = providers.environmentVariable(environment)
+    .orElse(signingProperties.getProperty(property, "")).get()
 
 android {
     namespace = "pl.slqpl.rodzina"
@@ -24,13 +30,24 @@ android {
         applicationId = "pl.slqpl.rodzina"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = providers.gradleProperty("appVersionCode").getOrElse("2").toInt().also { require(it > 0) }
+        versionName = providers.gradleProperty("appVersionName").getOrElse("0.2.0").also {
+            require(it.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+"))) { "Use a version such as 0.2.0" }
+        }
         buildConfigField("boolean", "FIREBASE_CONFIGURED", firebaseConfigured.toString())
         buildConfigField("boolean", "MAPS_CONFIGURED", mapsKey.isNotBlank().toString())
         manifestPlaceholders["mapsApiKey"] = mapsKey
     }
     buildFeatures { compose = true; buildConfig = true }
+    signingConfigs {
+        create("release") {
+            storeFile = rootProject.file(signingValue("SIGNING_STORE_FILE", "storeFile").ifBlank { "signing/rodzina-release.jks" })
+            storePassword = signingValue("SIGNING_STORE_PASSWORD", "storePassword")
+            keyAlias = signingValue("SIGNING_KEY_ALIAS", "keyAlias").ifBlank { "rodzina" }
+            keyPassword = signingValue("SIGNING_KEY_PASSWORD", "keyPassword")
+        }
+    }
+    buildTypes { getByName("release") { signingConfig = signingConfigs.getByName("release") } }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

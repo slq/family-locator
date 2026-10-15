@@ -3,14 +3,14 @@
 Prywatna aplikacja Android dla rodziny: Samsung S10, S10 i A54. Kotlin, Compose,
 Fused Location Provider, Room i opcjonalny Firebase Realtime Database.
 
-## Status: prototyp 0.1
+## Status: prototyp 0.2
 
 To pierwszy działający etap, **nie gotowy system zdalnego monitorowania**.
 APK bez konfiguracji działa jako lokalny tester GPS. Nie wymaga konta Firebase
 ani klucza map. Po konfiguracji obsługuje logowanie, wysyłanie ostatniej pozycji
 i podgląd pozycji rodziny. Usługa jest uruchamiana świadomie z ekranu aplikacji.
 
-| Funkcja | Wersja 0.1 |
+| Funkcja | Wersja 0.2 |
 |---|---|
 | Pomiary przy wygaszonym ekranie z widocznym powiadomieniem | Tak; do weryfikacji na telefonach |
 | Tryb okresowy / dokładny | Około 3 min / 10 s; dokładny wygasa lokalnie po 15 min |
@@ -19,6 +19,7 @@ i podgląd pozycji rodziny. Usługa jest uruchamiana świadomie z ekranu aplikac
 | Diagnostyka uprawnień, baterii, wieku i dokładności pomiaru | Tak |
 | Logowanie, ostatnie pozycje rodziny | Po konfiguracji Firebase i ręcznym przypisaniu kont |
 | Mapa i obszar dokładności | Po dodaniu klucza Maps SDK; bez Map ID |
+| Aktualizacje z aplikacji | Od 0.2.0: GitHub Releases, pobranie APK i instalator Androida |
 | Zdalne zwiększanie częstotliwości przez FCM | Następny etap |
 | Automatyczne rozpoznawanie ruchu / tryb 15 min w bezruchu | Następny etap |
 | Zaproszenia QR, historia tras, geofencing | Kolejne etapy |
@@ -88,6 +89,7 @@ Sprawdzają m.in. izolację rodzin, podszywanie się pod inną osobę, cofnięci
 członkostwa, walidację współrzędnych i ochronę przed starszym punktem offline.
 
 Plan testów na telefonach: [docs/DEVICE_TESTS.md](docs/DEVICE_TESTS.md).
+Podpisywanie i publikacja aktualizacji: [docs/UPDATES.md](docs/UPDATES.md).
 Architektura i następne kroki: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Ochrona konfiguracji

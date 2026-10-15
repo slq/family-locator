@@ -57,4 +57,5 @@ dla uzasadnionych, widocznych powiadomień, nie dla cichego okresowego odpytywan
 ## Dalsze etapy
 
 Zaproszenia z krótkim TTL, zarządzanie urządzeniami, automatyczna retencja serwera,
-detekcja ruchu, stabilny release signing, aktualizacje APK i dopiero potem geofencing.
+detekcja ruchu i geofencing. Od 0.2.0 dostępne są stabilne podpisywanie release
+i ręcznie uruchamiane aktualizacje z GitHub Releases; szczegóły w `UPDATES.md`.

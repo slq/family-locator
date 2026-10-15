@@ -42,6 +42,7 @@ import pl.slqpl.rodzina.data.LocationSample
 import pl.slqpl.rodzina.location.LocationSharingService
 import pl.slqpl.rodzina.location.TrackingMode
 import pl.slqpl.rodzina.ui.LocatorViewModel
+import pl.slqpl.rodzina.updates.UpdatesPanel
 import java.text.DateFormat
 import java.util.Date
 
@@ -120,7 +121,8 @@ private fun LocatorScreen(vm: LocatorViewModel = viewModel()) {
 
     Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Rodzina", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-        Text("Lokalizacja bliskich • prototyp 0.1", style = MaterialTheme.typography.bodyMedium)
+        Text("Lokalizacja bliskich • ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyMedium)
+        UpdatesPanel(sharing = status.running)
         Panel {
             Text(if (status.running) "Pomiary włączone" else "Pomiary zatrzymane", style = MaterialTheme.typography.titleLarge)
             Text(if (user == null) "Tryb lokalny: pozycja zostaje na tym telefonie." else "Pozycja jest wysyłana do Twojej rodziny w Firebase.")

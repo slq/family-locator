@@ -36,6 +36,8 @@ keystore.properties
 app/google-services.json
 *.apk
 *.aab
+dist/
+__pycache__/
 # Gradle wrapper is source-controlled, unlike other JAR files.
 !gradle/wrapper/gradle-wrapper.jar
 

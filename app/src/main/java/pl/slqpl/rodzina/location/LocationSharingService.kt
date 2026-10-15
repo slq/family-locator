@@ -1,4 +1,4 @@
-package pl.slawek.rodzina.location
+package pl.slqpl.rodzina.location
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -14,10 +14,10 @@ import com.google.android.gms.location.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import pl.slawek.rodzina.FamilyLocatorApp
-import pl.slawek.rodzina.MainActivity
-import pl.slawek.rodzina.R
-import pl.slawek.rodzina.data.LocationSample
+import pl.slqpl.rodzina.FamilyLocatorApp
+import pl.slqpl.rodzina.MainActivity
+import pl.slqpl.rodzina.R
+import pl.slqpl.rodzina.data.LocationSample
 import java.util.concurrent.TimeUnit
 
 class LocationSharingService : Service() {
@@ -185,10 +185,10 @@ class LocationSharingService : Service() {
     }
 
     companion object {
-        const val ACTION_START = "pl.slawek.rodzina.START"
-        const val ACTION_STOP = "pl.slawek.rodzina.STOP"
-        const val ACTION_LIVE = "pl.slawek.rodzina.LIVE"
-        const val ACTION_PERIODIC = "pl.slawek.rodzina.PERIODIC"
+        const val ACTION_START = "pl.slqpl.rodzina.START"
+        const val ACTION_STOP = "pl.slqpl.rodzina.STOP"
+        const val ACTION_LIVE = "pl.slqpl.rodzina.LIVE"
+        const val ACTION_PERIODIC = "pl.slqpl.rodzina.PERIODIC"
         private const val CHANNEL = "location_sharing"
         private const val NOTIFICATION_ID = 1
     }

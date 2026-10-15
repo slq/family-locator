@@ -7,7 +7,7 @@ Spark; Maps SDK wymaga skonfigurowanego billingu w projekcie Google Cloud.
 ## 1. Firebase i aplikacja Android
 
 1. Utwórz projekt w https://console.firebase.google.com/ (Analytics nie jest potrzebne).
-2. Dodaj aplikację Android z pakietem `pl.slawek.rodzina`.
+2. Dodaj aplikację Android z pakietem `pl.slqpl.rodzina`.
 3. Utwórz **Realtime Database** (nie Firestore), najlepiej w europejskiej lokalizacji
    `europe-west1`. Wybierz **Locked mode**, nigdy publiczny tryb testowy.
 4. W Project settings pobierz aktualny `google-services.json` i umieść go w `app/`.
@@ -15,6 +15,14 @@ Spark; Maps SDK wymaga skonfigurowanego billingu w projekcie Google Cloud.
 5. W Authentication → Sign-in method włącz **Email/Password**.
 6. W Authentication → Users utwórz osobne konto dla każdego telefonu; zanotuj UID.
    Nie używaj jednego konta na kilku urządzeniach (ścieżka pozycji jest indeksowana UID).
+
+Jeśli wcześniej zarejestrowałeś aplikację z inną nazwą pakietu, dodaj nową aplikację
+Android w tym samym projekcie Firebase i pobierz jej `google-services.json`.
+Konta użytkowników, baza i przypisania do rodziny pozostają w tym samym projekcie.
+Na telefonie nowy pakiet jest osobną aplikacją: trzeba ponownie przyznać uprawnienia
+i zalogować się. Zatrzymaj udostępnianie w starej aplikacji przed uruchomieniem nowej.
+Zmiana pakietu nie zmienia SHA-1, jeśli używasz tego samego klucza podpisującego;
+w ograniczeniach klucza Maps dodaj jednak nową nazwę pakietu.
 
 ## 2. Wdrożenie reguł
 
@@ -60,7 +68,7 @@ ostatnią widoczną pozycję, usuń `families/nasza-rodzina/locations/UID` jako 
 
 1. W tym samym projekcie Google Cloud włącz billing i **Maps SDK for Android**.
 2. Utwórz klucz API ograniczony do tego API i aplikacji Android.
-3. Dodaj pakiet `pl.slawek.rodzina` i SHA-1 certyfikatu użytego do podpisania APK.
+3. Dodaj pakiet `pl.slqpl.rodzina` i SHA-1 certyfikatu użytego do podpisania APK.
    Dla lokalnego debug uzyskasz go poleceniem `./gradlew :app:signingReport`
    (na Windows: `gradlew.bat`). Nie publikuj prywatnego pliku keystore.
 4. Do `local.properties` dopisz `MAPS_API_KEY=twoj_klucz`.

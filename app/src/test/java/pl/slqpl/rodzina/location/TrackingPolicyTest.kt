@@ -1,4 +1,4 @@
-package pl.slawek.rodzina.location
+package pl.slqpl.rodzina.location
 
 import org.junit.Assert.*
 import org.junit.Test

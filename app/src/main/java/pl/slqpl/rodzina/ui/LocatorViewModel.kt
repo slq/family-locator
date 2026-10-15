@@ -1,4 +1,4 @@
-package pl.slawek.rodzina.ui
+package pl.slqpl.rodzina.ui
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
@@ -7,8 +7,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import pl.slawek.rodzina.FamilyLocatorApp
-import pl.slawek.rodzina.cloud.FamilyPosition
+import pl.slqpl.rodzina.FamilyLocatorApp
+import pl.slqpl.rodzina.cloud.FamilyPosition
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LocatorViewModel(application: Application) : AndroidViewModel(application) {

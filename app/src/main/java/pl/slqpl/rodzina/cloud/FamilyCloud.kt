@@ -1,4 +1,4 @@
-package pl.slawek.rodzina.cloud
+package pl.slqpl.rodzina.cloud
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.*
@@ -6,8 +6,8 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.tasks.await
-import pl.slawek.rodzina.BuildConfig
-import pl.slawek.rodzina.data.LocationSample
+import pl.slqpl.rodzina.BuildConfig
+import pl.slqpl.rodzina.data.LocationSample
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 

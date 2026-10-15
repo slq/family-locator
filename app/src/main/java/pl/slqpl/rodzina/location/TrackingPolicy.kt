@@ -1,4 +1,4 @@
-package pl.slawek.rodzina.location
+package pl.slqpl.rodzina.location
 
 enum class TrackingMode(val intervalMillis: Long, val label: String) {
     PERIODIC(180_000, "Okresowy — około 3 min"),

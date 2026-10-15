@@ -18,10 +18,10 @@ val mapsKey = providers.environmentVariable("MAPS_API_KEY")
     .orElse(localConfig.getProperty("MAPS_API_KEY", "")).get()
 
 android {
-    namespace = "pl.slawek.rodzina"
+    namespace = "pl.slqpl.rodzina"
     compileSdk = 35
     defaultConfig {
-        applicationId = "pl.slawek.rodzina"
+        applicationId = "pl.slqpl.rodzina"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

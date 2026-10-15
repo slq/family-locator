@@ -1,10 +1,10 @@
-package pl.slawek.rodzina
+package pl.slqpl.rodzina
 
 import android.app.Application
 import androidx.room.Room
-import pl.slawek.rodzina.cloud.FamilyCloud
-import pl.slawek.rodzina.data.LocationDatabase
-import pl.slawek.rodzina.location.TrackingState
+import pl.slqpl.rodzina.cloud.FamilyCloud
+import pl.slqpl.rodzina.data.LocationDatabase
+import pl.slqpl.rodzina.location.TrackingState
 
 class FamilyLocatorApp : Application() {
     val database by lazy {

@@ -1,4 +1,4 @@
-package pl.slawek.rodzina.location
+package pl.slqpl.rodzina.location
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow

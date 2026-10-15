@@ -1,4 +1,4 @@
-package pl.slawek.rodzina
+package pl.slqpl.rodzina
 
 import android.Manifest
 import android.app.NotificationManager
@@ -37,11 +37,11 @@ import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.*
 import kotlinx.coroutines.delay
-import pl.slawek.rodzina.cloud.FamilyPosition
-import pl.slawek.rodzina.data.LocationSample
-import pl.slawek.rodzina.location.LocationSharingService
-import pl.slawek.rodzina.location.TrackingMode
-import pl.slawek.rodzina.ui.LocatorViewModel
+import pl.slqpl.rodzina.cloud.FamilyPosition
+import pl.slqpl.rodzina.data.LocationSample
+import pl.slqpl.rodzina.location.LocationSharingService
+import pl.slqpl.rodzina.location.TrackingMode
+import pl.slqpl.rodzina.ui.LocatorViewModel
 import java.text.DateFormat
 import java.util.Date
 

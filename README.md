@@ -61,7 +61,7 @@ Do trwałych rodzinnych instalacji potrzebny będzie osobny, zachowany klucz rel
 
 Pełna instrukcja: [docs/SETUP_FIREBASE.md](docs/SETUP_FIREBASE.md).
 
-- identyfikator aplikacji: **`pl.slawek.rodzina`**;
+- identyfikator aplikacji: **`pl.slqpl.rodzina`**;
 - konfiguracja klienta: lokalny `app/google-services.json`;
 - opcjonalny klucz map: `MAPS_API_KEY` w lokalnym `local.properties` lub zmiennej środowiska;
 - logowanie Email/Password; jeden użytkownik Firebase na jeden telefon;

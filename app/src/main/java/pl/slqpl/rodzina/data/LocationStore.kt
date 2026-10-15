@@ -1,4 +1,4 @@
-package pl.slawek.rodzina.data
+package pl.slqpl.rodzina.data
 
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow

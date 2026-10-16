@@ -1,7 +1,7 @@
 package pl.slqpl.rodzina.ui
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.*
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -27,7 +27,7 @@ class HistoryPanelTest {
     @Test fun selectingAnyFamilyMemberAndDayLoadsTheirHistoryButDeletionBelongsToTheOwner() {
         val loaded = mutableListOf<HistorySelection>()
         val state = mutableStateOf(HistorySnapshot())
-        compose.setContent { MaterialTheme {
+        compose.setContent { LocatorTheme {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                 HistoryPanel(members, "alice", now, state.value, false, "", false,
                     onShow = { uid, day -> loaded += HistorySelection(uid, day); state.value = HistorySnapshot(HistorySelection(uid, day)) },
@@ -36,16 +36,16 @@ class HistoryPanelTest {
         } }
         compose.onNodeWithTag("history-person").performScrollTo().performClick()
         compose.onNodeWithTag("history-person-bob").performClick()
-        compose.onNodeWithTag("history-load").performScrollTo().performClick()
+
         compose.onNodeWithTag("history-empty").assertExists()
         compose.onNodeWithTag("history-delete").assertDoesNotExist()
-        compose.onNodeWithText("Poprzedni dzień").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Poprzedni dzień").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(listOf(HistorySelection("bob", today), HistorySelection("bob", today.minusDays(1))), loaded) }
     }
 
     @Test fun deletingThroughADateRequiresAnExplicitConfirmation() {
         val deletions = mutableListOf<Pair<String, LocalDate>>()
-        compose.setContent { MaterialTheme {
+        compose.setContent { LocatorTheme {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                 HistoryPanel(members, "alice", now, HistorySnapshot(), false, "", false,
                     onShow = { _, _ -> }, onDelete = { uid, date -> deletions += uid to date })
@@ -66,15 +66,50 @@ class HistoryPanelTest {
         lateinit var camera: CameraPositionState
         val points = listOf(HistoryPoint("a", 50.0, 21.0, 10f, now - 10000, 70),
             HistoryPoint("b", 52.0, 21.0, 20f, now, 69))
-        compose.setContent { MaterialTheme {
+        compose.setContent { LocatorTheme {
             camera = rememberCameraPositionState()
             HistoryMap(points, members.first().appearance, "alice", camera)
         } }
-        compose.waitUntil(10_000) { !camera.isMoving && camera.position.target.latitude in 50.5..51.5 && camera.position.zoom < 10 }
+        fun awaitCamera(label: String, condition: () -> Boolean) {
+            try { compose.waitUntil(10_000, condition) }
+            catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+                throw AssertionError("$label: camera=${camera.position}, moving=${camera.isMoving}", failure)
+            }
+        }
+        awaitCamera("Initial route") { !camera.isMoving && camera.position.target.latitude in 50.5..51.5 && camera.position.zoom < 10 }
         compose.onNodeWithTag("history-time-slider").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0f) }
-        compose.waitUntil(10_000) { !camera.isMoving && abs(camera.position.target.latitude - 50.0) < 0.00001 && camera.position.zoom > 15 }
+        compose.onNodeWithTag("history-point-details").assertTextContains("Punkt 1/2", substring = true)
+        awaitCamera("Selected sample") { !camera.isMoving && abs(camera.position.target.latitude - 50.0) < 0.00001 && camera.position.zoom > 15 }
         compose.onNodeWithTag("history-point-details").assertTextContains("Punkt 1/2", substring = true)
         compose.onNodeWithText("Pokaż całą trasę").performClick()
-        compose.waitUntil(10_000) { !camera.isMoving && camera.position.zoom < 10 }
+        awaitCamera("Whole route") { !camera.isMoving && camera.position.zoom < 10 }
+    }
+
+    @Test fun selectedSampleInTheNewHistoryLayoutShowsItsRecordedTimeAndBattery() {
+        val start = today.atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() + 8 * 3_600_000
+        val points = (0 until 180).map { i ->
+            HistoryPoint("p$i", 52.22 + i * 0.00002, 21.0 + kotlin.math.sin(i / 20.0) * 0.001,
+                12f, start + i * 60_000L + if (i >= 90) 30 * 60_000 else 0, 82)
+        }
+        compose.setContent { LocatorTheme {
+            LocatorScaffold(LocatorTab.HISTORY, {}) { insets ->
+                Column(Modifier.fillMaxSize().padding(insets)) {
+                    ScreenHeading("Historia", "Ostatnie 30 dni")
+                    HistoryPanel(members, "alice", now, HistorySnapshot(HistorySelection("alice", today), points),
+                        false, "", true, onShow = { _, _ -> }, onDelete = { _, _ -> },
+                        modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp))
+                }
+            }
+        } }
+        compose.onNodeWithTag("history-map").assertIsDisplayed()
+        compose.onNodeWithTag("nav-history").assertIsSelected()
+        compose.waitForIdle()
+        captureUiPreview("historia")
+        compose.onNodeWithTag("history-time-slider").performScrollTo()
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(118f) }
+        compose.onNodeWithTag("history-point-details").assertTextContains("Punkt 119/180", substring = true)
+        compose.onNodeWithTag("history-point-details").assertTextContains("bateria 82%", substring = true)
+        compose.waitForIdle()
+        captureUiPreview("historia-suwak")
     }
 }

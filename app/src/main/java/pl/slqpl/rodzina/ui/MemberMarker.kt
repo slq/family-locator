@@ -27,12 +27,12 @@ fun MemberMarkerImage(appearance: MemberAppearance, modifier: Modifier = Modifie
 }
 
 @Composable
-fun rememberMemberMarkerBitmap(appearance: MemberAppearance): Bitmap {
+fun rememberMemberMarkerBitmap(appearance: MemberAppearance, stale: Boolean = false): Bitmap {
     val density = LocalDensity.current.density
-    return remember(appearance, density) { drawMemberMarker(appearance, density) }
+    return remember(appearance, density, stale) { drawMemberMarker(appearance, density, stale) }
 }
 
-private fun drawMemberMarker(appearance: MemberAppearance, density: Float): Bitmap {
+private fun drawMemberMarker(appearance: MemberAppearance, density: Float, stale: Boolean): Bitmap {
     val bitmap = createBitmap((52 * density).toInt().coerceAtLeast(1), (64 * density).toInt().coerceAtLeast(1))
     val canvas = Canvas(bitmap)
     canvas.scale(density, density)
@@ -65,5 +65,16 @@ private fun drawMemberMarker(appearance: MemberAppearance, density: Float): Bitm
     canvas.drawRoundRect(52 - badgeWidth, 1f, 52f, 19f, 9f, 9f, paint)
     paint.color = appearance.colorArgb
     canvas.drawText(number, 52 - badgeWidth / 2, 10f - (paint.ascent() + paint.descent()) / 2, paint)
+    if (stale) {
+        paint.color = Color.rgb(152, 96, 0)
+        canvas.drawCircle(10f, 47f, 9f, paint)
+        paint.color = Color.WHITE
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1.6f
+        canvas.drawCircle(10f, 47f, 6f, paint)
+        canvas.drawLine(10f, 43f, 10f, 47f, paint)
+        canvas.drawLine(10f, 47f, 13f, 49f, paint)
+        paint.style = Paint.Style.FILL
+    }
     return bitmap
 }

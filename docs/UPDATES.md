@@ -1,6 +1,6 @@
 # Aktualizacje aplikacji z GitHub Releases
 
-Na ekranie głównym znajduje się panel **Aktualizacje**. Użytkownik wybiera
+W zakładce **Ustawienia** znajduje się panel **Aktualizacje**. Użytkownik wybiera
 **Sprawdź aktualizacje**, następnie **Pobierz** i **Zainstaluj aktualizację**.
 Sprawdzanie jest ręczne; aplikacja nie odpytuje GitHuba w tle.
 
@@ -45,7 +45,7 @@ z kluczem Maps oraz konfiguracja podpisywania. Wersja musi mieć rosnący `versi
 `versionName`. Pierwsza wersja z aktualizatorem to kod 2 i nazwa 0.2.0.
 
 ```powershell
-.\scripts\Build-Release.ps1 -VersionCode 2 -VersionName 0.2.0
+.\scripts\Build-Release.ps1 -VersionCode 8 -VersionName 0.8.0
 ```
 
 Powstaną dwa pliki poza Gitem:
@@ -59,6 +59,11 @@ Wersja z listą członków i zdalnymi pomiarami używa `-VersionCode 3 -VersionN
 Wersja z wyborem ikon używa `-VersionCode 4 -VersionName 0.4.0`.
 Wersja z wyborem osoby i automatycznym dopasowaniem mapy używa `-VersionCode 5 -VersionName 0.5.0`.
 Przed jej instalacją wdroż aktualne reguły RTDB zgodnie z `SETUP_FIREBASE.md`.
+Wersja 0.8.0 używa kodu 8 i wprowadza mapę na start, cztery dolne zakładki,
+panel osoby z trybami udostępniania, historię z suwakiem czasu oraz oznaczenia
+starych pozycji. Aktualizacje i diagnostyka są dostępne w Ustawieniach.
+Obejmuje też zdalne wznowienie udostępniania i 30-dniową historię z poprzednich
+etapów; wymaga aktualnych reguł RTDB opisanych w `SETUP_FIREBASE.md`.
 
 ## Publikacja ręczna
 

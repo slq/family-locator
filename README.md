@@ -3,14 +3,14 @@
 Prywatna aplikacja Android dla rodziny: Samsung S10, S10 i A54. Kotlin, Compose,
 Fused Location Provider, Room i opcjonalny Firebase Realtime Database.
 
-## Status: prototyp 0.7
+## Status: prototyp 0.8
 
 To pierwszy działający etap, **nie gotowy system zdalnego monitorowania**.
 APK bez konfiguracji działa jako lokalny tester GPS. Nie wymaga konta Firebase
 ani klucza map. Po konfiguracji obsługuje logowanie, wysyłanie ostatniej pozycji
 i podgląd pozycji rodziny. Usługa jest uruchamiana świadomie z ekranu aplikacji.
 
-| Funkcja | Wersja 0.7 |
+| Funkcja | Wersja 0.8 |
 |---|---|
 | Pomiary przy wygaszonym ekranie z widocznym powiadomieniem | Tak; do weryfikacji na telefonach |
 | Tryb okresowy / dokładny | Około 3 min / 10 s; dokładny wygasa lokalnie po 15 min |
@@ -34,6 +34,24 @@ i podgląd pozycji rodziny. Usługa jest uruchamiana świadomie z ekranu aplikac
 `CONCEPT.md` opisuje pełną wizję i alternatywy architektury. Aktualny prototyp
 używa Firebase, bez Spring Boot, PostgreSQL i osobnego VPS.
 
+## Interfejs
+
+Aplikacja otwiera się na mapie. Dolna nawigacja rozdziela cztery widoki:
+
+- **Mapa** — pozycje rodziny, skrócona lista i stan udostępniania tego telefonu.
+- **Rodzina** — pełna lista osób; dotknięcie wiersza lub znacznika otwiera panel
+  z pomiarem, trzema trybami udostępniania i skrótem do historii. Osoby bez
+  pozycji również mają dostępny panel i sterowanie.
+- **Historia** — wybór osoby i dnia, mapa trasy oraz suwak zapisanych pomiarów.
+  Zmiana osoby lub dnia od razu pobiera właściwą historię.
+- **Ustawienia** — uruchamianie i pełne zatrzymywanie usługi, logowanie,
+  aktualizacje oraz diagnostyka.
+
+Pomiar starszy niż 5 minut jest oznaczany jako stara pozycja, także gdy telefon
+nadal potwierdza dostępność. Czas pomiaru i bateria opisują zapisany punkt.
+Potwierdzenie zdalnego polecenia jest pokazywane dopiero po odpowiedzi telefonu.
+Wybrana zakładka i stan przeglądania są zachowywane przy odtworzeniu ekranu.
+
 ## Uruchomienie lokalne
 
 Wymagane: JDK 17, Android SDK 35, Build Tools 35.0.0 i Android Studio obsługujące
@@ -43,7 +61,7 @@ AGP 8.9.2. Gradle 8.11.1 jest dołączony jako wrapper. Minimalny Android: 8.0/A
 2. Pozwól IDE utworzyć `local.properties` ze ścieżką `sdk.dir`.
 3. Wybierz moduł `app`, podłącz telefon przez USB i uruchom.
 4. Nadaj zgodę na **dokładną lokalizację** oraz powiadomienia.
-5. Wybierz „Dokładne pomiary przez 15 minut”, wyjdź na zewnątrz i zablokuj ekran.
+5. Otwórz **Ustawienia** i wybierz tryb **Dokładny** (15 minut), wyjdź na zewnątrz i zablokuj ekran.
 
 Budowanie i weryfikacja z Windows PowerShell:
 

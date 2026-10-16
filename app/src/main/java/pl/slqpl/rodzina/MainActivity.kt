@@ -16,13 +16,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -38,10 +35,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
 import pl.slqpl.rodzina.location.LocationSharingService
 import pl.slqpl.rodzina.location.TrackingMode
-import pl.slqpl.rodzina.ui.LocatorViewModel
-import pl.slqpl.rodzina.ui.FamilyOverview
-import pl.slqpl.rodzina.ui.TrackingControls
-import pl.slqpl.rodzina.ui.HistoryPanel
+import pl.slqpl.rodzina.ui.*
 import pl.slqpl.rodzina.cloud.HistoryPolicy
 import pl.slqpl.rodzina.updates.UpdatesPanel
 import java.text.DateFormat
@@ -51,7 +45,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF176B5B))) {
+            LocatorTheme {
                 Surface(Modifier.fillMaxSize()) { LocatorScreen() }
             }
         }
@@ -74,9 +68,6 @@ private fun LocatorScreen(vm: LocatorViewModel = viewModel()) {
     val history by vm.history.collectAsStateWithLifecycle()
     val historyBusy by vm.historyBusy.collectAsStateWithLifecycle()
     val historyMessage by vm.historyMessage.collectAsStateWithLifecycle()
-    val historyRequester = remember { BringIntoViewRequester() }
-    var historyScrollRequest by remember { mutableIntStateOf(0) }
-    LaunchedEffect(historyScrollRequest) { if (historyScrollRequest > 0) historyRequester.bringIntoView() }
     LaunchedEffect(user?.uid) { vm.maintainHistory() }
     val prefs = remember { context.getSharedPreferences("settings", MODE_PRIVATE) }
     val sharingServiceIntent = remember(context) { Intent(context, LocationSharingService::class.java) }
@@ -146,99 +137,167 @@ private fun LocatorScreen(vm: LocatorViewModel = viewModel()) {
         })
     }
 
-    Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("Rodzina", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-        Text("Lokalizacja bliskich • ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyMedium)
-        UpdatesPanel(sharing = status.running)
-        Panel {
-            Text(if (status.sharing) "Udostępnianie tego telefonu" else "Udostępnianie wyłączone", style = MaterialTheme.typography.titleLarge)
-            Text(if (user == null) "Tryb lokalny: pozycja zostaje na tym telefonie."
-                else if (status.sharing) "Pozycja jest wysyłana do Twojej rodziny."
-                else "Nie pobieramy ani nie wysyłamy nowych pozycji.")
-            if (status.sharing) {
-                Text(status.mode.label)
-                if (status.mode == TrackingMode.LIVE) Text("Powrót do trybu okresowego za ${status.remainingSeconds / 60}:${(status.remainingSeconds % 60).toString().padStart(2, '0')}")
-            }
-            Text(status.message)
-            if (user == null) OutlinedTextField(value = label, onValueChange = { label = it.take(40) }, label = { Text("Nazwa telefonu / osoby") }, enabled = !status.running, singleLine = true, modifier = Modifier.fillMaxWidth())
-            TrackingControls("self", status.mode, enabled = !busy && memberBusy == null, onSelect = ::changeOwnTracking)
-            if (status.running) {
-                Text("Sterowanie rodzinne włączone. Rodzina może zmieniać tryb i wznowić udostępnianie, także przy wygaszonym ekranie.", style = MaterialTheme.typography.bodySmall)
-                OutlinedButton(onClick = { context.stopService(sharingServiceIntent) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Wyłącz udostępnianie i sterowanie rodzinne")
-                }
-            } else if (user != null) {
-                OutlinedButton(onClick = { requestSharing(LocationSharingService.ACTION_PAUSE) }, enabled = !busy && memberBusy == null,
-                    modifier = Modifier.fillMaxWidth()) { Text("Włącz sterowanie rodzinne bez pomiarów") }
-            }
-            Text("Wyłączenie udostępniania pozostawia odbiór poleceń z widocznym powiadomieniem. Tryb dokładny wraca po 15 min do zwykłego udostępniania.",
-                style = MaterialTheme.typography.bodySmall)
-        }
-        Panel {
-            Text("Ostatni pomiar tego telefonu", style = MaterialTheme.typography.titleMedium)
-            val point = latest
-            if (point == null) Text("Brak pomiaru. Uruchom pomiary i poczekaj na ustalenie pozycji.") else {
-                Text("${point.latitude}, ${point.longitude}")
-                Text("Dokładność: około ${point.accuracyMeters.toInt()} m • ${ageText(point.measuredAt, now)}")
-                Text("Bateria przy pomiarze: ${point.batteryPercent}%")
-            }
-            Text("Oczekujące punkty: $pending")
-            status.lastUploadAt?.let { Text("Ostatnie potwierdzenie serwera: ${DateFormat.getTimeInstance().format(Date(it))}") }
-        }
-        FamilyOverview(family, latest, user?.uid, now + family.serverTimeOffset,
-            memberBusy, memberMessage.ifBlank { cloudMessage }, BuildConfig.MAPS_CONFIGURED,
-            vm::renameMember, onTracking = { uid, mode ->
-                if (uid == user?.uid) changeOwnTracking(mode) else vm.requestTracking(uid, mode)
-            }, onChooseIcon = vm::setOwnIcon, ownMode = status.mode, onShowHistory = { uid ->
-                vm.showHistory(uid, HistoryPolicy.day(now + family.serverTimeOffset)); historyScrollRequest++
-            })
-        user?.uid?.let { uid -> key(uid) {
-            HistoryPanel(family.members, uid, now + family.serverTimeOffset, history, historyBusy, historyMessage,
-                BuildConfig.MAPS_CONFIGURED, vm::showHistory, vm::deleteHistory, Modifier.bringIntoViewRequester(historyRequester))
-        } }
-
-        Panel {
-            Text("Rodzina w chmurze", style = MaterialTheme.typography.titleMedium)
-            if (!vm.configured) Text("Ten APK działa lokalnie. Konfigurację Firebase dodajemy podczas budowania aplikacji.")
-            else if (user == null) {
-                Text("Zaloguj się kontem utworzonym dla Ciebie w projekcie Firebase.")
-                OutlinedTextField(email, { email = it }, label = { Text("E-mail") }, enabled = !status.running && !busy, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(password, { password = it }, label = { Text("Hasło") }, visualTransformation = PasswordVisualTransformation(), enabled = !status.running && !busy, singleLine = true, modifier = Modifier.fillMaxWidth())
-                Button(onClick = { vm.signIn(email, password); password = "" }, enabled = !status.running && !busy && email.isNotBlank() && password.isNotBlank()) { Text(if (busy) "Logowanie…" else "Zaloguj") }
-            } else {
-                Text(user?.email.orEmpty())
-                SelectionContainer { Text("UID: ${user?.uid}", style = MaterialTheme.typography.bodySmall) }
-                Text("W prototypie konto przypisuje do rodziny administrator. Jeden telefon na konto.")
-                OutlinedButton(onClick = vm::signOut, enabled = !status.running && !busy && memberBusy == null && !historyBusy) { Text("Wyloguj i usuń lokalne pomiary") }
-                OutlinedButton(onClick = vm::refreshFamily) { Text("Odśwież rodzinę") }
-                Text("Tryb udostępniania zmienisz przy każdej osobie na liście rodziny. Przed wylogowaniem wyłącz też sterowanie rodzinne.", style = MaterialTheme.typography.bodySmall)
-            }
-            if (cloudMessage.isNotBlank()) Text(cloudMessage, color = MaterialTheme.colorScheme.error)
-        }
-        Panel {
-            Text("Diagnostyka", style = MaterialTheme.typography.titleMedium)
-            Text("${Build.MANUFACTURER} ${Build.MODEL} • Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
-            Text("Dokładna lokalizacja: ${yesNo(precise)}\nPowiadomienia: ${yesNo(notifications)}\nGPS włączony: ${yesNo(gpsEnabled)}\nWyjątek optymalizacji baterii: ${yesNo(unrestricted)}")
-            Text("Na Samsungu sprawdź również listę aplikacji usypianych. Wyjątek baterii nie gwarantuje ciągłej pracy.", style = MaterialTheme.typography.bodySmall)
-            OutlinedButton(onClick = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri())) }) { Text("Ustawienia aplikacji") }
-            OutlinedButton(onClick = vm::clearLocalData, enabled = !status.running) { Text("Usuń pomiary z tego telefonu") }
-            Text("Po restarcie lub zatrzymaniu aplikacji uruchom pomiary ponownie. Zatrzymanie nie usuwa ostatniej pozycji zapisanej w chmurze.", style = MaterialTheme.typography.bodySmall)
+    var tabName by rememberSaveable { mutableStateOf(LocatorTab.MAP.name) }
+    val tab = LocatorTab.valueOf(tabName)
+    var focusUid by rememberSaveable(user?.uid) { mutableStateOf<String?>(null) }
+    var focusRequest by rememberSaveable { mutableIntStateOf(0) }
+    val screenState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    val serverNow = now + family.serverTimeOffset
+    LaunchedEffect(tab, user?.uid) {
+        if (tab == LocatorTab.HISTORY && user != null && history.selection == null) {
+            vm.showHistory(user!!.uid, HistoryPolicy.day(serverNow))
         }
     }
-}
-
-@Composable
-private fun Panel(content: @Composable ColumnScope.() -> Unit) {
-    Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content) }
+    androidx.activity.compose.BackHandler(enabled = tab != LocatorTab.MAP) { tabName = LocatorTab.MAP.name }
+    LocatorScaffold(tab, onTab = { tabName = it.name }) { insets ->
+        Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding()) {
+            ScreenHeading(
+                when (tab) {
+                    LocatorTab.MAP -> "Rodzina"
+                    LocatorTab.FAMILY -> "Moja rodzina"
+                    LocatorTab.HISTORY -> "Historia"
+                    LocatorTab.SETTINGS -> "Ustawienia"
+                },
+                when (tab) {
+                    LocatorTab.MAP -> "Pozycje bliskich"
+                    LocatorTab.FAMILY -> "Położenie i udostępnianie"
+                    LocatorTab.HISTORY -> "Ostatnie 30 dni"
+                    LocatorTab.SETTINGS -> "Twój telefon i konto"
+                },
+                onSettings = if (tab == LocatorTab.MAP) ({ tabName = LocatorTab.SETTINGS.name }) else null,
+            )
+            if (tab == LocatorTab.MAP) SharingSummary(status, user == null) { tabName = LocatorTab.SETTINGS.name }
+            Box(Modifier.weight(1f)) {
+                screenState.SaveableStateProvider("${user?.uid.orEmpty()}-${tab.name}") {
+                    when (tab) {
+                        LocatorTab.MAP, LocatorTab.FAMILY -> FamilyOverview(
+                            family, latest, user?.uid, serverNow, memberBusy,
+                            memberMessage.ifBlank { cloudMessage }, BuildConfig.MAPS_CONFIGURED,
+                            vm::renameMember,
+                            onTracking = { uid, mode ->
+                                if (uid == user?.uid) changeOwnTracking(mode) else vm.requestTracking(uid, mode)
+                            },
+                            onChooseIcon = vm::setOwnIcon, ownMode = status.mode,
+                            onShowHistory = { uid ->
+                                vm.showHistory(uid, HistoryPolicy.day(serverNow)); tabName = LocatorTab.HISTORY.name
+                            },
+                            modifier = Modifier.fillMaxSize(), showMap = tab == LocatorTab.MAP,
+                            onOpenFamily = { tabName = LocatorTab.FAMILY.name },
+                            onOpenSettings = { tabName = LocatorTab.SETTINGS.name },
+                            onOpenMap = { uid -> focusUid = uid; focusRequest++; tabName = LocatorTab.MAP.name },
+                            focusUid = focusUid, focusRequest = focusRequest, ownRemainingSeconds = status.remainingSeconds, actionsEnabled = !busy && !historyBusy, ownMessage = status.message,
+                        )
+                        LocatorTab.HISTORY -> {
+                            val uid = user?.uid
+                            if (uid == null) {
+                                Column(Modifier.padding(20.dp)) {
+                                    EmptyState("Historia Twojej rodziny", "Zaloguj się, aby przeglądać zapisane trasy bliskich.",
+                                        "Przejdź do konta", { tabName = LocatorTab.SETTINGS.name })
+                                }
+                            } else HistoryPanel(
+                                family.members, uid, serverNow, history, historyBusy, historyMessage,
+                                BuildConfig.MAPS_CONFIGURED, vm::showHistory, vm::deleteHistory,
+                                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
+                            )
+                        }
+                        LocatorTab.SETTINGS -> Column(
+                            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            SectionCard {
+                                Text("Udostępnianie tego telefonu", style = MaterialTheme.typography.titleLarge)
+                                Text(if (user == null) "Tryb lokalny: pozycja zostaje na tym telefonie."
+                                    else if (status.sharing) "Pozycja jest wysyłana do Twojej rodziny."
+                                    else "Nie pobieramy ani nie wysyłamy nowych pozycji.")
+                                if (status.mode == TrackingMode.LIVE) {
+                                    Text("Tryb dokładny · jeszcze ${remainingTime(status.remainingSeconds)}", color = MaterialTheme.colorScheme.primary)
+                                }
+                                Text(status.message, style = MaterialTheme.typography.bodyMedium)
+                                if (user == null) OutlinedTextField(
+                                    value = label, onValueChange = { label = it.take(40) },
+                                    label = { Text("Nazwa telefonu / osoby") }, enabled = !status.running,
+                                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                                )
+                                TrackingControls("self", status.mode, enabled = !busy && memberBusy == null && !historyBusy, onSelect = ::changeOwnTracking)
+                                Text("Zwykły: pomiar co około 3 min. Dokładny: co około 10 s przez 15 min.",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                if (status.running) {
+                                    Text("Sterowanie rodzinne włączone", fontWeight = FontWeight.SemiBold)
+                                    Text("Rodzina może zmienić tryb i wznowić udostępnianie przy wygaszonym ekranie. Usługa ma widoczne powiadomienie.",
+                                        style = MaterialTheme.typography.bodySmall)
+                                    OutlinedButton(onClick = { context.stopService(sharingServiceIntent) }, modifier = Modifier.fillMaxWidth()) {
+                                        Text("Wyłącz udostępnianie i sterowanie rodzinne")
+                                    }
+                                } else if (user != null) {
+                                    OutlinedButton(
+                                        onClick = { requestSharing(LocationSharingService.ACTION_PAUSE) },
+                                        enabled = !busy && memberBusy == null && !historyBusy, modifier = Modifier.fillMaxWidth(),
+                                    ) { Text("Włącz samo sterowanie rodzinne") }
+                                }
+                                Text("Wyłączenie samego udostępniania pozostawia odbiór poleceń. Po restarcie lub pełnym zatrzymaniu uruchom usługę ponownie.",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            SectionCard {
+                                Text("Konto i rodzina", style = MaterialTheme.typography.titleLarge)
+                                if (!vm.configured) Text("Ten APK działa lokalnie. Konfigurację Firebase dodajemy podczas budowania aplikacji.")
+                                else if (user == null) {
+                                    Text("Zaloguj się kontem utworzonym dla Ciebie w projekcie Firebase.")
+                                    OutlinedTextField(email, { email = it }, label = { Text("E-mail") },
+                                        enabled = !status.running && !busy, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Email))
+                                    OutlinedTextField(password, { password = it }, label = { Text("Hasło") },
+                                        visualTransformation = PasswordVisualTransformation(), enabled = !status.running && !busy,
+                                        singleLine = true, modifier = Modifier.fillMaxWidth(),
+                                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password))
+                                    Button(onClick = { vm.signIn(email, password); password = "" },
+                                        enabled = !status.running && !busy && email.isNotBlank() && password.isNotBlank()) {
+                                        Text(if (busy) "Logowanie…" else "Zaloguj")
+                                    }
+                                    if (status.running) Text("Przed logowaniem wyłącz usługę tego telefonu.", style = MaterialTheme.typography.bodySmall)
+                                } else {
+                                    Text(user?.email.orEmpty())
+                                    OutlinedButton(onClick = vm::refreshFamily) { Text("Odśwież rodzinę") }
+                                    OutlinedButton(onClick = vm::signOut, enabled = !status.running && !busy && memberBusy == null && !historyBusy) {
+                                        Text("Wyloguj i usuń lokalne pomiary")
+                                    }
+                                    if (status.running) Text("Przed wylogowaniem wyłącz również sterowanie rodzinne.", style = MaterialTheme.typography.bodySmall)
+                                    SelectionContainer { Text("UID: ${user?.uid}", style = MaterialTheme.typography.bodySmall) }
+                                }
+                                if (cloudMessage.isNotBlank()) Text(cloudMessage, color = MaterialTheme.colorScheme.error)
+                            }
+                            UpdatesPanel(sharing = status.running)
+                            SectionCard {
+                                Text("Ostatni pomiar", style = MaterialTheme.typography.titleLarge)
+                                val point = latest
+                                if (point == null) Text("Brak pomiaru. Uruchom pomiary i poczekaj na ustalenie pozycji.")
+                                else {
+                                    SelectionContainer { Text("${point.latitude}, ${point.longitude}") }
+                                    Text("Dokładność ±${point.accuracyMeters.toInt()} m · ${measurementAge(point.measuredAt, now)}")
+                                    Text("Bateria przy pomiarze: ${point.batteryPercent}%")
+                                }
+                                Text("Oczekujące punkty: $pending", style = MaterialTheme.typography.bodySmall)
+                                status.lastUploadAt?.let { Text("Potwierdzenie serwera: ${DateFormat.getTimeInstance().format(Date(it))}", style = MaterialTheme.typography.bodySmall) }
+                            }
+                            SectionCard {
+                                Text("Diagnostyka", style = MaterialTheme.typography.titleLarge)
+                                Text("${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE}")
+                                Text("Dokładna lokalizacja: ${yesNo(precise)}\nPowiadomienia: ${yesNo(notifications)}\nGPS: ${yesNo(gpsEnabled)}\nWyjątek baterii: ${yesNo(unrestricted)}")
+                                Text("Na Samsungu sprawdź także listę aplikacji usypianych. Wyjątek baterii nie gwarantuje ciągłej pracy.",
+                                    style = MaterialTheme.typography.bodySmall)
+                                OutlinedButton(onClick = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri())) }) {
+                                    Text("Ustawienia aplikacji")
+                                }
+                                OutlinedButton(onClick = vm::clearLocalData, enabled = !status.running) { Text("Usuń lokalne pomiary") }
+                                Text("Zatrzymanie nie usuwa ostatniej pozycji zapisanej w chmurze.", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Spacer(Modifier.height(8.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 private fun yesNo(value: Boolean) = if (value) "tak" else "nie"
-private fun ageText(measuredAt: Long, now: Long): String {
-    val seconds = (now - measuredAt) / 1000
-    return when {
-        seconds < 0 -> "sprawdź zegar telefonu"
-        seconds < 60 -> "$seconds s temu"
-        seconds < 3600 -> "${seconds / 60} min temu"
-        else -> "${seconds / 3600} godz. temu — pozycja może być nieaktualna"
-    }
-}

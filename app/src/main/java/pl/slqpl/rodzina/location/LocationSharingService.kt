@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.*
+import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -14,6 +15,8 @@ import androidx.core.content.edit
 import com.google.android.gms.location.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.tasks.await
@@ -38,6 +41,12 @@ class LocationSharingService : Service() {
     private var modeReady = false
     private var serverTimeOffset = 0L
     private var cleanedUp = false
+    private val sessions by lazy { TrackingSessionStore(this) }
+    private var initialized = false
+    private var startupJob: Job? = null
+    private var recoveringRemote: TrackingSession? = null
+    private var waitingForRecovery = false
+    private fun bootCount() = Settings.Global.getInt(contentResolver, Settings.Global.BOOT_COUNT, -1)
     private val fused by lazy { LocationServices.getFusedLocationProviderClient(this) }
     private var appliedMode: TrackingMode? = null
     private var started = false
@@ -50,7 +59,7 @@ class LocationSharingService : Service() {
     private var presenceJob: Job? = null
     private var pauseCleanup: Job? = null
 
-    private fun sharing() = started && policy.mode(SystemClock.elapsedRealtime()) != TrackingMode.STOPPED
+    private fun sharing() = started && initialized && !waitingForRecovery && policy.mode(SystemClock.elapsedRealtime()) != TrackingMode.STOPPED
 
     private val callback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -85,86 +94,166 @@ class LocationSharingService : Service() {
 
     override fun onBind(intent: Intent?) = null
 
+    private fun permissionsGranted(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
+            getSystemService(NotificationManager::class.java).areNotificationsEnabled()
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) { shutdown(); return START_NOT_STICKY }
-        if (intent == null) { stopSelf(); return START_NOT_STICKY }
-        val fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        val notifications = getSystemService(NotificationManager::class.java).areNotificationsEnabled()
-        if (!fine || !notifications) {
+        if (intent?.action == ACTION_STOP) { shutdown(discardPending = true); return START_NOT_STICKY }
+        if (cleanedUp) return START_NOT_STICKY
+        if (!permissionsGranted()) {
             shutdown("Włącz dokładną lokalizację i powiadomienia, aby rozpocząć")
             return START_NOT_STICKY
         }
-        val mode = when (intent.action) {
+        if (intent == null && started) return START_STICKY
+        val saved = if (intent == null) sessions.read() else null
+        if (intent == null && saved?.recover(bootCount(), SystemClock.elapsedRealtime(), true, false, null) != Recovery.WAIT_FOR_AUTH) {
+            shutdown("Brak poprawnej sesji do wznowienia. Uruchom usługę z aplikacji.")
+            return START_NOT_STICKY
+        }
+        if (intent != null && !initialized && !sessions.beginLocalStart()) {
+            shutdown("Nie zapisano uruchomienia usługi")
+            return START_NOT_STICKY
+        }
+        val mode = when (intent?.action) {
             ACTION_LIVE -> TrackingMode.LIVE
             ACTION_PAUSE -> TrackingMode.STOPPED
             else -> TrackingMode.PERIODIC
         }
-        val elapsedNow = SystemClock.elapsedRealtime()
-        policy.setMode(mode, elapsedNow)
-        activeRemote = null; pendingAck = null
-        remotePolicy.localChange(elapsedNow)
         try {
             if (!started) {
-                ownerUid = app.cloud.user.value?.uid
-                label = getSharedPreferences("settings", MODE_PRIVATE).getString("label", Build.MODEL).orEmpty()
-                remotePolicy = RemoteTrackingPolicy(elapsedNow,
-                    ownerUid?.let { getSharedPreferences("remote_tracking", MODE_PRIVATE).getString(it, null) })
+                waitingForRecovery = true
+                policy.setMode(TrackingMode.STOPPED, SystemClock.elapsedRealtime())
                 val manager = getSystemService(NotificationManager::class.java)
                 manager.createNotificationChannel(NotificationChannel(CHANNEL, "Lokalizacja i sterowanie rodzinne", NotificationManager.IMPORTANCE_LOW))
                 val serviceType = if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0
                 ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(), serviceType)
                 started = true
-                // Preserve an offline queue across a process crash; an explicit stop marks it for discarding.
-                ownerUid?.let { uid ->
-                    if (getSharedPreferences("queue_policy", MODE_PRIVATE).getBoolean(uid, false))
-                        pauseCleanup = scope.launch {
-                            app.database.locations().discardPending(uid)
-                            getSharedPreferences("queue_policy", MODE_PRIVATE).edit { putBoolean(uid, false) }
-                        }
-                }
-                ownerUid?.let { uid -> scope.launch { receiveRemoteRequests(uid) } }
-                scope.launch {
-                    while (isActive) { applyMode(); delay(1_000) }
-                }
-                scope.launch {
-                    while (isActive) {
-                        if (sharing() && uploadJob?.isActive != true) measurementsJob?.let { job ->
-                            uploadJob = scope.launch(job) { syncPending() }
-                        }
-                        requestPresence()
-                        delay(30_000)
-                    }
-                }
-                ownerUid?.let { uid -> scope.launch {
-                    while (isActive) {
-                        try { withTimeout(30_000) { app.cloud.history.maintain(uid) } }
-                        catch (cancelled: CancellationException) { if (cancelled !is TimeoutCancellationException) throw cancelled }
-                        catch (_: Exception) { /* Maintenance resumes at the next run or in the history screen. */ }
-                        delay(60 * 60 * 1000L)
-                    }
-                } }
+                app.tracking.update { it.copy(running = true, mode = TrackingMode.STOPPED,
+                    message = "Oczekiwanie na odtworzenie konta. Pomiary są wstrzymane.") }
             }
-            app.tracking.update { it.copy(message = if (mode == TrackingMode.STOPPED)
-                "Nie pobieramy ani nie wysyłamy pozycji. Rodzina może wznowić udostępnianie."
-                else "Uruchamianie udostępniania") }
-            applyMode()
-            requestPresence()
+            if (initialized) {
+                recoveringRemote = null; waitingForRecovery = false
+                policy.setMode(mode, SystemClock.elapsedRealtime())
+                activeRemote = null; pendingAck = null
+                remotePolicy.localChange(SystemClock.elapsedRealtime())
+                if (!persistSession()) return START_NOT_STICKY
+                applyMode(); requestPresence()
+            } else {
+                startupJob?.cancel()
+                startupJob = scope.launch {
+                    try {
+                        val auth = withTimeout(15_000) { app.cloud.authState.first { it.ready } }
+                        ensureActive()
+                        if (!permissionsGranted() || saved != null && saved.recover(bootCount(), SystemClock.elapsedRealtime(),
+                                true, auth.ready, auth.uid) != Recovery.RESTORE) {
+                            shutdown("Nie można wznowić poprzedniej sesji. Sprawdź konto i uprawnienia.")
+                            return@launch
+                        }
+                        ownerUid = saved?.ownerUid ?: auth.uid
+                        label = getSharedPreferences("settings", MODE_PRIVATE).getString("label", Build.MODEL).orEmpty()
+                        val elapsedNow = SystemClock.elapsedRealtime()
+                        if (saved != null) {
+                            remotePolicy = RemoteTrackingPolicy(saved.remote)
+                            activeRemote = saved.activeRemote; pendingAck = saved.pendingAck
+                            saved.restore(policy, elapsedNow)
+                            recoveringRemote = saved.takeIf { it.activeRemote != null }
+                        } else {
+                            remotePolicy = RemoteTrackingPolicy(elapsedNow,
+                                ownerUid?.let { getSharedPreferences("remote_tracking", MODE_PRIVATE).getString(it, null) })
+                            policy.setMode(mode, elapsedNow)
+                        }
+                        initialized = true
+                        waitingForRecovery = recoveringRemote != null
+                        if (!persistSession()) return@launch
+                        beginWork()
+                    } catch (cancelled: CancellationException) {
+                        if (cancelled is TimeoutCancellationException)
+                            shutdown("Nie odtworzono konta. Uruchom usługę ponownie z aplikacji.")
+                        else throw cancelled
+                    } catch (_: Exception) {
+                        shutdown("Nie udało się odtworzyć usługi. Uruchom ją ponownie z aplikacji.")
+                    }
+                }
+            }
         } catch (_: SecurityException) {
             shutdown("System odmówił dostępu do lokalizacji")
         } catch (_: IllegalStateException) {
             shutdown("Otwórz aplikację, aby uruchomić sterowanie rodzinne")
         }
-        // A force stop, process death or restart requires an explicit start from the app.
-        return START_NOT_STICKY
+        return if (cleanedUp) START_NOT_STICKY else START_STICKY
+    }
+
+    private fun persistSession(): Boolean {
+        if (!initialized || cleanedUp) return false
+        val elapsedNow = SystemClock.elapsedRealtime()
+        val mode = policy.mode(elapsedNow)
+        val saved = TrackingSession(ownerUid, mode, if (mode == TrackingMode.LIVE) policy.liveUntilElapsed else 0,
+            elapsedNow, bootCount(), remotePolicy.snapshot(), activeRemote, pendingAck)
+        if (sessions.write(saved)) return true
+        shutdown("Nie zapisano stanu usługi. Uruchom ją ponownie z aplikacji.")
+        return false
+    }
+
+    private fun beginWork() {
+        // A committed pause must finish discarding even while remote verification is offline.
+        if (policy.mode(SystemClock.elapsedRealtime()) == TrackingMode.STOPPED) ownerUid?.let {
+            getSharedPreferences("queue_policy", MODE_PRIVATE).edit(commit = true) { putBoolean(it, true) }
+        }
+        // Finish a previously committed explicit discard before any measurement or upload.
+        ownerUid?.let { uid ->
+            if (getSharedPreferences("queue_policy", MODE_PRIVATE).getBoolean(uid, false))
+                pauseCleanup = scope.launch {
+                    app.database.locations().discardPending(uid)
+                    getSharedPreferences("queue_policy", MODE_PRIVATE).edit(commit = true) { putBoolean(uid, false) }
+                }
+        }
+        scope.launch {
+            app.cloud.authState.collectLatest { auth ->
+                if (auth.ready && auth.uid != ownerUid) shutdown("Konto usługi uległo zmianie. Uruchom ją ponownie z aplikacji.")
+            }
+        }
+        ownerUid?.let { uid -> scope.launch { receiveRemoteRequests(uid) } }
+        scope.launch {
+            while (isActive) {
+                if (!permissionsGranted()) { shutdown("Cofnięto uprawnienia lokalizacji lub powiadomień"); return@launch }
+                applyMode(); delay(1_000)
+            }
+        }
+        scope.launch {
+            while (isActive) {
+                if (sharing() && uploadJob?.isActive != true) measurementsJob?.let { job ->
+                    uploadJob = scope.launch(job) { syncPending() }
+                }
+                requestPresence(); delay(30_000)
+            }
+        }
+        ownerUid?.let { uid -> scope.launch {
+            while (isActive) {
+                try { withTimeout(30_000) { app.cloud.history.maintain(uid) } }
+                catch (cancelled: CancellationException) { if (cancelled !is TimeoutCancellationException) throw cancelled }
+                catch (_: Exception) { /* Maintenance resumes at the next run or in the history screen. */ }
+                delay(60 * 60 * 1000L)
+            }
+        } }
+        if (!started) return
+        app.tracking.update { it.copy(message = if (waitingForRecovery)
+            "Weryfikacja polecenia rodziny. Pomiary są wstrzymane."
+            else if (policy.mode(SystemClock.elapsedRealtime()) == TrackingMode.STOPPED)
+                "Nie pobieramy ani nie wysyłamy pozycji. Rodzina może wznowić udostępnianie."
+            else "Uruchamianie udostępniania") }
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification())
+        applyMode(); requestPresence()
     }
 
     @SuppressLint("MissingPermission")
     private fun applyMode() {
-        if (!started) return
+        if (!started || !initialized || waitingForRecovery) return
         val elapsedNow = SystemClock.elapsedRealtime()
         val mode = policy.mode(elapsedNow)
         app.tracking.update { it.copy(running = true, mode = mode, remainingSeconds = policy.remainingSeconds(elapsedNow)) }
         if (appliedMode == mode) return
+        if (!persistSession()) return
         appliedMode = mode
         modeReady = false
         modeJob?.cancel()
@@ -173,14 +262,14 @@ class LocationSharingService : Service() {
             val previousMeasurements = measurementsJob
             previousMeasurements?.cancel(); measurementsJob = null
             app.cloud.cancelPendingWrites()
-            ownerUid?.let { getSharedPreferences("queue_policy", MODE_PRIVATE).edit { putBoolean(it, true) } }
+            ownerUid?.let { getSharedPreferences("queue_policy", MODE_PRIVATE).edit(commit = true) { putBoolean(it, true) } }
             val previousCleanup = pauseCleanup
             pauseCleanup = scope.launch {
                 previousCleanup?.join()
                 previousMeasurements?.join()
                 ownerUid?.let { uid ->
                     app.database.locations().discardPending(uid)
-                    getSharedPreferences("queue_policy", MODE_PRIVATE).edit { putBoolean(uid, false) }
+                    getSharedPreferences("queue_policy", MODE_PRIVATE).edit(commit = true) { putBoolean(uid, false) }
                 }
             }
         } else if (measurementsJob == null) {
@@ -216,9 +305,12 @@ class LocationSharingService : Service() {
             connected = false; presenceReady = false
             presenceJob?.cancel()
             if (activeRemote != null) {
-                activeRemote = null; pendingAck = null
-                policy.setMode(TrackingMode.STOPPED, SystemClock.elapsedRealtime())
-                applyMode()
+                // Keep a pending recovery gated until a fresh server verification succeeds.
+                if (recoveringRemote == null) {
+                    activeRemote = null; pendingAck = null
+                    policy.setMode(TrackingMode.STOPPED, SystemClock.elapsedRealtime())
+                    if (persistSession()) applyMode()
+                }
             }
             if (started) app.tracking.update { it.copy(message = "Brak zdalnego sterowania. Sprawdź połączenie i reguły rodziny.") }
             delay(5_000)
@@ -228,18 +320,40 @@ class LocationSharingService : Service() {
             serverTimeOffset = control.serverTimeOffset
             connected = control.connected
             if (!connected) { presenceReady = false; return@collect }
-            if (control.request == null && activeRemote != null) {
+            var request = control.request
+            val recovering = recoveringRemote
+            if (recovering != null) {
+                // Do not start measurements or publish readiness from a cached command.
+                var verified: TrackingRequest? = null
+                var verifiedServer = false
+                while (recoveringRemote === recovering && !verifiedServer) {
+                    try {
+                        verified = withTimeout(10_000) { app.cloud.verifyRemoteRequest(uid) }
+                        verifiedServer = true
+                    } catch (cancelled: CancellationException) {
+                        if (cancelled !is TimeoutCancellationException) throw cancelled
+                    } catch (_: Exception) { /* Stay paused; retry without trusting cached state. */ }
+                    if (!verifiedServer) delay(5_000)
+                }
+                // A local action during the network call has priority over the recovery result.
+                if (recoveringRemote !== recovering || !started) return@collect
+                request = verified
+                recoveringRemote = null; waitingForRecovery = false
+                if (!recovering.restoreRemote(policy, verified, SystemClock.elapsedRealtime(),
+                        System.currentTimeMillis() + serverTimeOffset)) {
+                    activeRemote = null; pendingAck = null
+                }
+            }
+            if (request == null && activeRemote != null) {
                 // A command author removed from this family cannot keep a remote session running.
                 activeRemote = null; pendingAck = null
                 policy.setMode(TrackingMode.STOPPED, SystemClock.elapsedRealtime())
-                applyMode()
             }
             val serverNow = System.currentTimeMillis() + serverTimeOffset
             val elapsedNow = SystemClock.elapsedRealtime()
-            val accepted = remotePolicy.accept(control.request, serverNow, elapsedNow)
+            val accepted = remotePolicy.accept(request, serverNow, elapsedNow)
             if (accepted != null) {
                 presenceJob?.cancel()
-                getSharedPreferences("remote_tracking", MODE_PRIVATE).edit { putString(uid, accepted.id) }
                 activeRemote = accepted; pendingAck = accepted
                 policy.setMode(accepted.mode, elapsedNow, accepted.expiresAt - serverNow)
                 app.tracking.update { it.copy(message = when (accepted.mode) {
@@ -247,9 +361,10 @@ class LocationSharingService : Service() {
                     TrackingMode.PERIODIC -> "Rodzina włączyła udostępnianie położenia"
                     TrackingMode.LIVE -> "Rodzina włączyła dokładne pomiary na pozostały czas żądania"
                 }) }
-                applyMode()
             }
-            if (pendingAck?.id != control.request?.id) pendingAck = null
+            if (pendingAck?.id != request?.id) pendingAck = null
+            if (!persistSession()) return@collect
+            applyMode()
             requestPresence()
         }
     }
@@ -270,7 +385,7 @@ class LocationSharingService : Service() {
                     val ack = pendingAck?.takeIf { it.mode == mode && activeRemote?.id == it.id }
                     if (ack != null) {
                         app.cloud.acknowledgeTracking(uid, ack, until)
-                        if (pendingAck?.id == ack.id) pendingAck = null
+                        if (pendingAck?.id == ack.id) { pendingAck = null; persistSession() }
                     } else app.cloud.publishDevice(uid, mode, until)
                 }
             } catch (cancelled: CancellationException) {
@@ -320,9 +435,11 @@ class LocationSharingService : Service() {
         val mode = policy.mode(SystemClock.elapsedRealtime())
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_location)
-            .setContentTitle(if (mode == TrackingMode.STOPPED) "Rodzina — udostępnianie wyłączone"
+            .setContentTitle(if (waitingForRecovery) "Rodzina — odtwarzanie usługi"
+                else if (mode == TrackingMode.STOPPED) "Rodzina — udostępnianie wyłączone"
                 else if (ownerUid == null) "Rodzina — lokalny test lokalizacji" else "Udostępniasz lokalizację rodzinie")
-            .setContentText(if (mode == TrackingMode.STOPPED) "Bez pomiarów. Rodzina może wznowić udostępnianie." else mode.label)
+            .setContentText(if (waitingForRecovery) "Pomiary wstrzymane do weryfikacji konta i polecenia."
+                else if (mode == TrackingMode.STOPPED) "Bez pomiarów. Rodzina może wznowić udostępnianie." else mode.label)
             .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true)
             .apply { if (mode != TrackingMode.STOPPED) addAction(0, "Wyłącz udostępnianie", pause) }
             .addAction(0, "Wyłącz też sterowanie", stop).build()
@@ -331,7 +448,6 @@ class LocationSharingService : Service() {
     private fun cleanup(message: String = "Udostępnianie i sterowanie rodzinne wyłączone. Włącz je ponownie z aplikacji.") {
         if (cleanedUp) return
         cleanedUp = true; started = false
-        ownerUid?.let { getSharedPreferences("queue_policy", MODE_PRIVATE).edit { putBoolean(it, true) } }
         scope.cancel()
         fused.removeLocationUpdates(callback)
         app.cloud.cancelPendingWrites()
@@ -339,12 +455,32 @@ class LocationSharingService : Service() {
         app.tracking.update { it.copy(running = false, mode = TrackingMode.STOPPED, remainingSeconds = 0,
             message = message) }
     }
-    private fun shutdown(message: String = "Udostępnianie i sterowanie rodzinne wyłączone. Włącz je ponownie z aplikacji.") {
+    private fun shutdown(
+        message: String = "Udostępnianie i sterowanie rodzinne wyłączone. Włącz je ponownie z aplikacji.",
+        discardPending: Boolean = false,
+    ) {
+        // Failed recovery must not erase an offline queue; only a deliberate stop discards it.
+        if (discardPending) (ownerUid ?: sessions.read()?.ownerUid)?.let {
+            getSharedPreferences("queue_policy", MODE_PRIVATE).edit(commit = true) { putBoolean(it, true) }
+        }
+        sessions.disable()
         cleanup(message); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
     }
-    override fun onDestroy() { cleanup(); super.onDestroy() }
+    override fun onDestroy() {
+        if (sessions.read() != null) cleanup("Usługa przerwana. Android może wznowić zapisaną sesję.")
+        else cleanup()
+        super.onDestroy()
+    }
 
     companion object {
+        fun stop(context: android.content.Context) {
+            val store = TrackingSessionStore(context)
+            val savedOwner = store.read()?.ownerUid ?: (context.applicationContext as FamilyLocatorApp).cloud.user.value?.uid
+            savedOwner?.let { context.getSharedPreferences("queue_policy", MODE_PRIVATE)
+                .edit(commit = true) { putBoolean(it, true) } }
+            store.disable()
+            context.stopService(Intent(context, LocationSharingService::class.java))
+        }
         const val ACTION_START = "pl.slqpl.rodzina.START"
         const val ACTION_STOP = "pl.slqpl.rodzina.STOP"
         const val ACTION_PAUSE = "pl.slqpl.rodzina.PAUSE"

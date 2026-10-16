@@ -1,6 +1,6 @@
 # User story: Automatyczne wznowienie lokalizacji po zakończeniu procesu
 
-**Docelowy plik:** `USER_STORY_BACKGROUND_RECOVERY.md` w katalogu głównym aplikacji.
+**Status:** Zaimplementowana; testy na fizycznych Samsungach pozostają do wykonania.
 
 **Jako** użytkownik Family Locator  
 **chcę**, aby aplikacja automatycznie wznawiała wcześniej włączoną usługę po zakończeniu procesu przez Androida,  
@@ -34,6 +34,20 @@
 - Testy zachowania kolejki offline oraz pełnego zatrzymania.
 - Rzeczywiste ubicie procesu aplikacji debug na emulatorze i próby na Samsungach przy wygaszonym ekranie.
 - Poprawne przejście testów jednostkowych, budowania APK, lint oraz istniejącego testu sterowania rodzinnego.
+
+## Wynik weryfikacji — 2026-10-17
+
+- 47 testów jednostkowych: poprawnie.
+- Budowanie debug APK i androidTest oraz lint: poprawnie (lint bez błędów).
+- 33 testy reguł RTDB: poprawnie; reguły i schemat nie zostały zmienione.
+- Sterowanie rodzinne i historia z emulatorami Auth/RTDB: 3 testy poprawnie.
+- Zestaw Androida 35: 16 zaliczonych; 3 próby opt-in uruchomione osobno.
+- `Test-BackgroundRecovery.ps1`: rzeczywiste ubicie procesu dla okresowego,
+  dokładnego (również powtórnie), wygasłego dokładnego i pauzy; powrót powiadomienia,
+  trwałość kolejki Room, odrzucenie innego konta bez odrzucania kolejki oraz pełny Stop:
+  poprawnie.
+- Próby na fizycznych Samsungach z wygaszonym ekranem: do wykonania według
+  `docs/DEVICE_TESTS.md`; podczas implementacji dostępny był tylko emulator.
 
 ## Ograniczenia
 

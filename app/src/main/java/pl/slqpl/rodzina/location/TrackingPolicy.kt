@@ -11,7 +11,8 @@ enum class TrackingMode(val intervalMillis: Long, val label: String) {
 
 /** A monotonic deadline prevents wall-clock changes from extending a live session. */
 class TrackingPolicy {
-    private var liveUntilElapsed = 0L
+    var liveUntilElapsed = 0L
+        private set
     private var sharing = true
 
     fun setMode(mode: TrackingMode, elapsedMillis: Long, liveDuration: Long = LIVE_DURATION) {

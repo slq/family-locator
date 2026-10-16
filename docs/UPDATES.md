@@ -65,6 +65,11 @@ starych pozycji. Aktualizacje i diagnostyka są dostępne w Ustawieniach.
 Obejmuje też zdalne wznowienie udostępniania i 30-dniową historię z poprzednich
 etapów; wymaga aktualnych reguł RTDB opisanych w `SETUP_FIREBASE.md`.
 
+Wersja 0.9.0 używa kodu 10 i dodaje US-011: odtwarzanie zapisanej usługi po
+zakończeniu procesu przez Androida. Zachowuje tryb, konto, kolejkę offline i pozostały
+czas dokładnej sesji. Pełny Stop wyłącza odtwarzanie; restart telefonu i Force Stop
+nadal wymagają uruchomienia z aplikacji. Reguły i schemat Firebase pozostają bez zmian.
+
 ## Publikacja ręczna
 
 1. Otwórz https://github.com/slq/family-locator/releases/new.

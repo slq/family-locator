@@ -3,14 +3,14 @@
 Prywatna aplikacja Android dla rodziny: Samsung S10, S10 i A54. Kotlin, Compose,
 Fused Location Provider, Room i opcjonalny Firebase Realtime Database.
 
-## Status: prototyp 0.8
+## Status: prototyp 0.9
 
 To pierwszy działający etap, **nie gotowy system zdalnego monitorowania**.
 APK bez konfiguracji działa jako lokalny tester GPS. Nie wymaga konta Firebase
 ani klucza map. Po konfiguracji obsługuje logowanie, wysyłanie ostatniej pozycji
 i podgląd pozycji rodziny. Usługa jest uruchamiana świadomie z ekranu aplikacji.
 
-| Funkcja | Wersja 0.8 |
+| Funkcja | Wersja 0.9 |
 |---|---|
 | Pomiary przy wygaszonym ekranie z widocznym powiadomieniem | Tak; do weryfikacji na telefonach |
 | Tryb okresowy / dokładny | Około 3 min / 10 s; dokładny wygasa lokalnie po 15 min |
@@ -29,7 +29,8 @@ i podgląd pozycji rodziny. Usługa jest uruchamiana świadomie z ekranu aplikac
 | Historia położenia | 30 dni; dowolny członek rodziny i wybrany dzień na osobnej mapie |
 | Usuwanie historii do daty | Dane dowolnego członka rodziny, wskazany dzień włącznie; kolejka offline nie przywraca usuniętych punktów |
 | Zaproszenia QR, geofencing | Kolejne etapy |
-| Automatyczne wznowienie po restarcie / ubiciu procesu | Nie; ponownie uruchom z aplikacji |
+| Wznowienie po ubiciu procesu przez Androida (US-011) | Tak; zapisany tryb, konto i pozostały czas sesji dokładnej; termin wznowienia zależy od systemu |
+| Autostart po restarcie telefonu / Force Stop | Nie; ponownie uruchom z aplikacji |
 
 `CONCEPT.md` opisuje pełną wizję i alternatywy architektury. Aktualny prototyp
 używa Firebase, bez Spring Boot, PostgreSQL i osobnego VPS.
@@ -97,8 +98,10 @@ Punkty zebrane bez logowania mają `ownerUid = null` i nie są później wysyła
 Zmiana konta wymaga wyłączenia udostępniania i sterowania rodzinnego. Wylogowanie usuwa lokalną bazę punktów.
 Wyłączenie samego udostępniania zatrzymuje pomiary i wysyłki oraz usuwa niewysłaną
 kolejkę, zachowując odbiór poleceń rodziny. Całą usługę wyłącza osobny przycisk
-w aplikacji lub powiadomieniu. Po pełnym zatrzymaniu i restarcie uruchom ją ponownie
-z aplikacji; stare polecenia nie są ponawiane.
+w aplikacji lub powiadomieniu. Po ubiciu procesu Android może odtworzyć usługę
+bez otwierania ekranu. Sesja uruchomiona zdalnie czeka na sprawdzenie aktualnego
+polecenia na serwerze. Po pełnym zatrzymaniu, restarcie telefonu lub Force Stop
+uruchom ją ponownie z aplikacji; stare polecenia nie są ponawiane.
 Zatrzymanie wysyłania pozostawia ostatnią pozycję w chmurze z oryginalnym czasem
 pomiaru. Od 0.7.0 historia obejmuje ostatnie 30 dni. Starsze punkty są stopniowo
 usuwane podczas pracy aplikacji dowolnego członka rodziny. Gdy wszystkie telefony
@@ -136,4 +139,4 @@ Firebase Authentication i reguły bazy. Klucz Maps ogranicz do aplikacji Android
 pakietu i SHA-1 certyfikatu oraz API Maps SDK for Android.
 
 Aplikacja nie zapisuje współrzędnych ani haseł w logach. Kopie systemowe aplikacji
-są wyłączone. Nie ma reklam, analityki ani usługi automatycznego restartu.
+są wyłączone. Nie ma reklam, analityki ani autostartu po restarcie telefonu.

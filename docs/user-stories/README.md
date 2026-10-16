@@ -1,10 +1,10 @@
 # User stories — Family Locator
 
-Dziesięć propozycji rozwoju aplikacji Rodzina. Każdy dokument opisuje potrzebę
+Jedenaście historii rozwoju aplikacji Rodzina. Każdy dokument opisuje potrzebę
 użytkownika, zakres pierwszej wersji oraz kryteria akceptacji.
 
-**Status wszystkich historii: Propozycja.** Dokumenty nie oznaczają, że opisane
-funkcje są już dostępne.
+**US-001–US-010: Propozycja. US-011: Zaimplementowana; testy na fizycznych
+Samsungach pozostają do wykonania.**
 
 ## Indeks
 
@@ -20,6 +20,7 @@ funkcje są już dostępne.
 | US-008 | Czasowe udostępnianie podczas podróży | [Tryb podróży](US-008-tryb-podrozy.md) |
 | US-009 | Podgląd rodziny na ekranie głównym | [Widżet](US-009-widzet.md) |
 | US-010 | Dołączanie do rodziny kodem lub QR | [Zaproszenia QR](US-010-zaproszenia-qr.md) |
+| US-011 | Odtwarzanie usługi po ubiciu procesu | [Praca w tle](US-011-praca-w-tle.md) |
 
 Numery identyfikują historie i zachowują kolejność propozycji; nie wyznaczają
 kolejności wdrożenia.

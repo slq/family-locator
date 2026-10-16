@@ -8,9 +8,10 @@ punkt. Dla zalogowanego użytkownika synchronizator wysyła najnowszy punkt
 do bieżącej mapy oraz wszystkie oczekujące punkty w partiach do historii RTDB. UI subskrybuje listę członków i dane rodziny tylko, gdy jest aktywne.
 Podczas pracy usługa nasłuchuje poleceń zmiany trybu w RTDB, także przy wyłączonym udostępnianiu.
 
-Nie deklarujemy `ACCESS_BACKGROUND_LOCATION`: ta wersja zaczyna usługę wyłącznie
-z widocznej Activity. Usługa może potem kontynuować przy wygaszonym ekranie.
-`START_NOT_STICKY` świadomie wymaga ponownego startu po zatrzymaniu procesu.
+Nie deklarujemy `ACCESS_BACKGROUND_LOCATION`: pierwsze uruchomienie usługi wymaga
+widocznej Activity. Usługa może potem kontynuować przy wygaszonym ekranie.
+`START_STICKY` pozwala Androidowi odtworzyć wcześniej uruchomioną usługę po
+przerwaniu procesu. Termin odtworzenia zależy od systemu.
 Nie ma receivera BOOT_COMPLETED ani mechanizmu obchodzącego Force Stop.
 
 ## Lokalizacja i bateria
@@ -79,7 +80,7 @@ z kolejki Room. Nie usuwa wcześniej potwierdzonej pozycji z serwera. Odbiór po
 pozostaje w działającej usłudze pierwszoplanowej z powiadomieniem opisującym pauzę.
 To pozwala rodzinie wznowić pomiary przy schowanej aplikacji, bez zimnego startu
 usługi lokalizacji z tła. Osobny przycisk **Wyłącz udostępnianie i sterowanie rodzinne**
-oraz akcja powiadomienia wyłączają całą usługę. Force Stop i restart też ją kończą.
+oraz akcja powiadomienia wyłączają całą usługę. Force Stop i restart telefonu też ją kończą.
 
 Potwierdzenie wysyłamy po pomyślnej rejestracji albo usunięciu żądania pomiarów.
 Potwierdza zmianę trybu, a nie uzyskanie nowej pozycji GPS. Stan urządzenia i ack są
@@ -97,6 +98,35 @@ sterowanie świadomie z ekranu aplikacji.
 Źródła ograniczeń Androida:
 - https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start
 - https://developer.android.com/develop/sensors-and-location/location/permissions
+
+## Odtwarzanie procesu (US-011)
+
+`TrackingSessionStore` zapisuje atomowo jeden dokument SharedPreferences, z synchronicznym
+`commit` przed zmianą pomiarów: konto lub tryb lokalny, tryb, monotoniczny termin dokładnego,
+`BOOT_COUNT`, granicę lokalnej zmiany, wykorzystane UUID i czas najnowszego polecenia oraz
+aktywne żądanie i oczekujące potwierdzenie. Odtworzenie `onStartCommand(null, ...)` nie
+wyznacza nowego terminu. Miniony termin oznacza tryb okresowy. Inny boot, cofnięcie zegara
+monotonicznego, brak poprawnego zapisu lub uprawnień wyłączają odtwarzanie.
+
+Foreground notification pojawia się od razu, także podczas oczekiwania na Firebase Auth.
+`authState.ready` odróżnia oczekiwanie na pierwszy callback od wylogowania. Oczekiwanie
+jest ograniczone do 15 s; inny UID (również przejście z trybu lokalnego na konto) zatrzymuje
+usługę. Późniejsza zmiana konta lub uprawnień również ją wyłącza.
+
+Lokalny tryb okresowy i dokładny mogą wznowić pomiary offline. Odtwarzanie aktywnego
+polecenia rodzinnego wstrzymuje pomiary i wysyłki do sprawdzenia na serwerze bieżącego
+żądania i członkostwa obu osób. Odczyt REST z tokenem Firebase omija fallback pamięci
+podręcznej SDK; respektuje te same reguły RTDB i nie zmienia schematu. Błąd sieci oznacza
+oczekiwanie i ponowienie. Zastąpione/usunięte polecenie albo usunięty autor nie wznawiają
+starej sesji. Lokalna zmiana w czasie sprawdzania unieważnia wynik odtwarzania. Dokładny
+tryb ma najwyżej pozostały czas oryginalnego terminu monotonicznego.
+
+`onDestroy` tylko zwalnia zasoby, zachowując sesję i kolejkę Room. Pełne wyłączenie
+z UI lub powiadomienia zapisuje trwałe wyłączenie odtwarzania oraz znacznik odrzucenia
+kolejki właściciela; spóźniony zapis stanu nie może ponownie włączyć sesji. Pauza
+nadal usuwa niewysłane punkty i zachowuje odbiór poleceń. Brak receivera boot i brak
+uruchamiania usługi przy samym otwarciu Activity pozostawiają restart telefonu oraz
+Force Stop poza automatycznym odtwarzaniem.
 
 ## Ikony członków od 0.4.0
 

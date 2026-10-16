@@ -110,6 +110,10 @@ class TrackingControlTest {
             remote(TrackingMode.PERIODIC)
             remote(TrackingMode.LIVE)
             assertTrue(app.tracking.status.value.remainingSeconds in 1..900)
+            val persisted = TrackingSessionStore(context).read()!!
+            assertEquals(TrackingMode.LIVE, persisted.mode)
+            assertEquals(persisted.activeRemote, receiver.verifyRemoteRequest(bob))
+            assertEquals(persisted.remote, RemoteTrackingPolicy(persisted.remote).snapshot())
             // A queued offline sample must be discarded when remote sharing is disabled.
             room.locations().insert(LocationSample(ownerUid = bob, latitude = 52.0, longitude = 21.0,
                 accuracyMeters = 10f, measuredAt = System.currentTimeMillis(), batteryPercent = 70))
@@ -126,7 +130,7 @@ class TrackingControlTest {
             bobDatabase.goOnline()
             ready(TrackingMode.STOPPED)
             assertEquals(TrackingMode.STOPPED, app.tracking.status.value.mode)
-            context.stopService(service)
+            LocationSharingService.stop(context)
             withTimeout(5_000) { app.tracking.status.first { !it.running } }
             sender.requestTracking(alice, bob, TrackingMode.LIVE)
             assertFalse(app.tracking.status.value.running)
@@ -136,7 +140,7 @@ class TrackingControlTest {
             // A fresh command still works after the old one was ignored on explicit restart.
             remote(TrackingMode.PERIODIC)
         } finally {
-            context.stopService(service)
+            LocationSharingService.stop(context)
             withTimeoutOrNull(5_000) { app.tracking.status.first { !it.running } }
             activity?.close()
             app.testCloud = null; app.testDatabase = null

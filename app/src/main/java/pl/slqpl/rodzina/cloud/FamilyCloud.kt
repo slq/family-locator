@@ -1,6 +1,13 @@
 package pl.slqpl.rodzina.cloud
 
+import android.net.Uri
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 import com.google.firebase.database.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
@@ -14,6 +21,8 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+
+data class CloudAuthState(val ready: Boolean, val uid: String?)
 
 data class CloudUser(val uid: String, val email: String)
 data class FamilyPosition(
@@ -37,11 +46,14 @@ class FamilyCloud(
     private val mutableUser = MutableStateFlow<CloudUser?>(null)
     private val knownFamilies = ConcurrentHashMap<String, String>()
     val user = mutableUser.asStateFlow()
+    private val mutableAuthState = MutableStateFlow(CloudAuthState(auth == null, null))
+    val authState = mutableAuthState.asStateFlow()
     val history by lazy { FamilyHistory(database, ::familyId) { auth?.currentUser?.uid } }
 
     init {
         auth?.addAuthStateListener { source ->
             mutableUser.value = source.currentUser?.let { CloudUser(it.uid, it.email.orEmpty()) }
+            mutableAuthState.value = CloudAuthState(true, source.currentUser?.uid)
         }
     }
 
@@ -145,6 +157,43 @@ class FamilyCloud(
             val allowed = roster.children.mapNotNull { it.key }.toSet()
             RemoteControl(parseRequest(incoming)?.takeIf { it.requesterUid in allowed }, offset, online)
         })
+    }
+
+    /** Recovery must consult the server: RTDB get() may fall back to a cached value offline. */
+    suspend fun verifyRemoteRequest(uid: String): TrackingRequest? {
+        val source = checkNotNull(auth)
+        check(source.currentUser?.uid == uid)
+        val token = checkNotNull(source.currentUser?.getIdToken(false)?.await()?.token)
+        val root = database.reference.toString().trimEnd('/')
+        val namespace = Uri.parse(source.app.options.databaseUrl).host?.substringBefore('.')
+        return withContext(Dispatchers.IO) {
+            fun read(path: String, query: Map<String, String> = emptyMap()): JSONObject? {
+                ensureActive()
+                val uri = Uri.parse("$root/$path.json").buildUpon()
+                    .appendQueryParameter("auth", token).apply {
+                        if (namespace != null) appendQueryParameter("ns", namespace)
+                        query.forEach { (key, value) -> appendQueryParameter(key, value) }
+                    }.build()
+                val connection = URL(uri.toString()).openConnection() as HttpURLConnection
+                connection.connectTimeout = 3_000; connection.readTimeout = 3_000
+                connection.instanceFollowRedirects = false
+                try {
+                    val status = connection.responseCode
+                    check(status == 200) { "Nie zweryfikowano polecenia rodziny ($status)" }
+                    val body = connection.inputStream.bufferedReader().use { it.readText() }
+                    return if (body == "null") null else JSONObject(body)
+                } finally { connection.disconnect() }
+            }
+            val family = read("memberships/${Uri.encode(uid)}")?.getString("familyId") ?: return@withContext null
+            val value = read("families/${Uri.encode(family)}/trackingRequests/${Uri.encode(uid)}") ?: return@withContext null
+            val requester = value.getString("requesterUid")
+            val roster = read("memberships", mapOf("orderBy" to JSONObject.quote("familyId"),
+                "equalTo" to JSONObject.quote(family))) ?: return@withContext null
+            if (!roster.has(uid) || !roster.has(requester)) return@withContext null
+            check(source.currentUser?.uid == uid)
+            TrackingRequest(requester, value.getString("id"), value.getLong("requestedAt"),
+                TrackingMode.fromWire(value.getString("mode")) ?: return@withContext null)
+        }
     }
 
     suspend fun registerDisconnect(uid: String) {

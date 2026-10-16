@@ -70,7 +70,6 @@ private fun LocatorScreen(vm: LocatorViewModel = viewModel()) {
     val historyMessage by vm.historyMessage.collectAsStateWithLifecycle()
     LaunchedEffect(user?.uid) { vm.maintainHistory() }
     val prefs = remember { context.getSharedPreferences("settings", MODE_PRIVATE) }
-    val sharingServiceIntent = remember(context) { Intent(context, LocationSharingService::class.java) }
     var label by rememberSaveable { mutableStateOf(prefs.getString("label", Build.MODEL).orEmpty()) }
     var email by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") } // Never save credentials into saved instance state.
@@ -122,7 +121,7 @@ private fun LocatorScreen(vm: LocatorViewModel = viewModel()) {
     fun changeOwnTracking(mode: TrackingMode) {
         if (mode == TrackingMode.STOPPED) {
             if (!status.running || user == null) {
-                context.stopService(sharingServiceIntent)
+                LocationSharingService.stop(context)
                 vm.report("Udostępnianie i sterowanie rodzinne są wyłączone.")
             } else {
                 // Stopping must work even if a permission or notifications were just disabled.
@@ -226,7 +225,7 @@ private fun LocatorScreen(vm: LocatorViewModel = viewModel()) {
                                     Text("Sterowanie rodzinne włączone", fontWeight = FontWeight.SemiBold)
                                     Text("Rodzina może zmienić tryb i wznowić udostępnianie przy wygaszonym ekranie. Usługa ma widoczne powiadomienie.",
                                         style = MaterialTheme.typography.bodySmall)
-                                    OutlinedButton(onClick = { context.stopService(sharingServiceIntent) }, modifier = Modifier.fillMaxWidth()) {
+                                    OutlinedButton(onClick = { LocationSharingService.stop(context) }, modifier = Modifier.fillMaxWidth()) {
                                         Text("Wyłącz udostępnianie i sterowanie rodzinne")
                                     }
                                 } else if (user != null) {

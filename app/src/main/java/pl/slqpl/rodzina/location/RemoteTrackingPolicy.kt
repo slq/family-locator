@@ -4,10 +4,23 @@ data class TrackingRequest(val requesterUid: String, val id: String, val request
     val expiresAt get() = requestedAt + TrackingPolicy.LIVE_DURATION
 }
 
+data class RemoteTrackingState(
+    val boundaryElapsed: Long,
+    val consumedId: String? = null,
+    val newestTime: Long = Long.MIN_VALUE,
+    val seenIds: Set<String> = emptySet(),
+)
+
 /** One server-ordered command per phone. Local actions supersede earlier remote commands. */
-class RemoteTrackingPolicy(private var boundaryElapsed: Long, var consumedId: String? = null) {
-    private var newestTime = Long.MIN_VALUE
-    private val seen = linkedSetOf<String>().apply { consumedId?.let(::add) }
+class RemoteTrackingPolicy(
+    private var boundaryElapsed: Long,
+    var consumedId: String? = null,
+    private var newestTime: Long = Long.MIN_VALUE,
+    seenIds: Set<String> = emptySet(),
+) {
+    constructor(state: RemoteTrackingState) : this(state.boundaryElapsed, state.consumedId, state.newestTime, state.seenIds)
+    private val seen = linkedSetOf<String>().apply { addAll(seenIds); consumedId?.let(::add) }
+    fun snapshot() = RemoteTrackingState(boundaryElapsed, consumedId, newestTime, seen.toSet())
 
     fun localChange(elapsedNow: Long) { boundaryElapsed = elapsedNow }
 

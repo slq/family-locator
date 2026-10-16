@@ -58,6 +58,11 @@ Nie wrzucaj prawdziwych współrzędnych do publicznych issues.
 | Aktualizacja 0.6 → 0.7 z punktami offline | Room zachowuje punkty i nadaje trwałe klucze; ponowienie nie dubluje historii |
 | Brak internetu / stare reguły przy historii | Czytelny błąd i ponowienie; brak fałszywego potwierdzenia kasowania |
 | Cofnięcie członkostwa w konsoli | Kolejne odczyty/zapisy odrzucane; aplikacja sygnalizuje błąd |
+| Ubicie procesu przez system, tryb okresowy / dokładny / pauza | Usługa i powiadomienie wracają bez ekranu aplikacji; dokładny wykorzystuje tylko pierwotny pozostały czas; pauza nie mierzy |
+| Ubicie procesu offline, potem powrót sieci | Kolejka Room zachowana; lokalna sesja może mierzyć offline, zdalna sesja czeka na weryfikację polecenia |
+| Polecenie usunięte / zastąpione lub autor usunięty podczas przerwy | Stare zdalne pomiary nie wracają; nowe uprawnione polecenie nadal działa |
+| Pełne wyłączenie z UI lub powiadomienia, potem ubicie procesu | Brak wznowienia; spóźniona operacja nie włącza zapisanej sesji |
+| Cofnięcie uprawnień / inne konto podczas odtwarzania | Zatrzymanie bez pętli startów; brak wysyłek pod innym kontem |
 | Force Stop / restart telefonu | Bez cichego wznowienia; ponowny start z ekranu |
 | GPS wyłączony / budynek | Brak świeżego punktu lub gorsza dokładność; widoczny wiek pomiaru |
 | Oszczędzanie baterii i nocne Doze | Zapisz faktyczne opóźnienia; nie zakładaj ciągłości |
@@ -90,3 +95,28 @@ npx firebase emulators:exec --project demo-family-locator --only auth,database "
 
 Standardowe `connectedDebugAndroidTest` pomija ten opt-in test, jeśli nie podano
 argumentu `firebaseEmulators=true`. Test nie zmienia konta ani danych prawdziwej rodziny.
+
+## Próba rzeczywistego ubicia procesu (US-011)
+
+Po zbudowaniu debug i androidTest, na emulatorze bez zalogowanego domyślnego konta:
+
+```powershell
+.\scripts\Test-BackgroundRecovery.ps1 -SdkPath C:/Dev/JS/family-locator/.android-sdk
+```
+
+Skrypt sprawdza konto przed próbą, dodaje izolowany syntetyczny punkt offline,
+uruchamia usługę przy widocznej Activity, chowa ekran i wykonuje `run-as ... kill -9`
+na rzeczywistym procesie debug. Sprawdza nowy PID, foreground service, powiadomienie,
+odtworzone tryby, niezmieniony termin dokładnego także po kolejnym ubiciu oraz
+wygaśnięcie terminu podczas przerwy oraz odrzucenie innego konta bez oznaczania
+kolejki offline do skasowania. Krótki termin jest syntetyczną zmianą trwałego
+zapisu przy zamrożonym procesie. Końcowa instrumentacja sprawdza punkt Room i trwałe
+wyłączenie wznowienia, po czym usuwa wyłącznie dane próby. Skrypt nie używa Force Stop
+jako symulacji przerwania przez system.
+
+Testy `TrackingSessionTest` obejmują konta, uprawnienia, boot, terminy oraz ochronę
+UUID i pierwszeństwo lokalnych zmian. `TrackingSessionStoreTest` sprawdza pełny zapis,
+uszkodzone dane, blokadę zapisu po Stop oraz kolejkę Room po ponownym otwarciu bazy.
+
+Na fizycznych S10 i A54 powtórz próby przy wygaszonym ekranie, z Doze i ustawieniami
+baterii One UI. Te próby wymagają podłączonych telefonów i pozostają ręczne.

@@ -1,0 +1,213 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "memberships": {
+      ".indexOn": [
+        "familyId"
+      ],
+      ".read": "auth != null && root.child('memberships').child(auth.uid).child('familyId').isString() && query.orderByChild === 'familyId' && query.equalTo === root.child('memberships').child(auth.uid).child('familyId').val()",
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid"
+      }
+    },
+    "families": {
+      "$familyId": {
+        ".read": "auth != null && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId",
+        "memberIcons": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId",
+            ".validate": "newData.isString() && (newData.val() === 'cat' || newData.val() === 'dog' || newData.val() === 'fox' || newData.val() === 'bear' || newData.val() === 'panda' || newData.val() === 'rabbit' || newData.val() === 'koala' || newData.val() === 'tiger' || newData.val() === 'lion' || newData.val() === 'owl' || newData.val() === 'frog' || newData.val() === 'penguin')"
+          }
+        },
+        "memberNames": {
+          "$uid": {
+            ".write": "auth != null && newData.exists() && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId && root.child('memberships').child($uid).child('familyId').val() === $familyId",
+            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 40 && newData.val().matches(/.*[^ ].*/)"
+          }
+        },
+        "devices": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && newData.exists() && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId",
+            ".validate": "newData.hasChildren(['sharing', 'mode', 'updatedAt', 'liveUntil']) && ((newData.child('sharing').val() === false && newData.child('mode').val() === 'stopped' && newData.child('liveUntil').val() === 0) || (newData.child('sharing').val() === true && ((newData.child('mode').val() === 'periodic' && newData.child('liveUntil').val() === 0) || (newData.child('mode').val() === 'live' && newData.child('liveUntil').val() > now && newData.child('liveUntil').val() <= now + 910000))))",
+            "sharing": {
+              ".validate": "newData.isBoolean()"
+            },
+            "mode": {
+              ".validate": "newData.isString()"
+            },
+            "updatedAt": {
+              ".validate": "newData.isNumber() && newData.val() === now"
+            },
+            "liveUntil": {
+              ".validate": "newData.isNumber()"
+            },
+            "controlReady": {
+              ".validate": "newData.isBoolean()"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "trackingRequests": {
+          "$targetUid": {
+            ".write": "auth != null && newData.exists() && newData.child('requesterUid').val() === auth.uid && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId && root.child('memberships').child($targetUid).child('familyId').val() === $familyId",
+            ".validate": "newData.hasChildren(['id', 'requesterUid', 'mode', 'requestedAt']) && (!data.exists() || (newData.child('id').val() !== data.child('id').val() && newData.child('requestedAt').val() >= data.child('requestedAt').val()))",
+            "id": {
+              ".validate": "newData.isString() && newData.val().length === 36"
+            },
+            "requesterUid": {
+              ".validate": "newData.isString()"
+            },
+            "mode": {
+              ".validate": "newData.val() === 'periodic' || newData.val() === 'live' || newData.val() === 'stopped'"
+            },
+            "requestedAt": {
+              ".validate": "newData.isNumber() && newData.val() === now"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "trackingAcks": {
+          "$targetUid": {
+            ".write": "auth != null && auth.uid === $targetUid && newData.exists() && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId && root.child('memberships').child(root.child('families').child($familyId).child('trackingRequests').child($targetUid).child('requesterUid').val()).child('familyId').val() === $familyId",
+            ".validate": "newData.hasChildren(['requestId', 'mode', 'respondedAt']) && newData.child('requestId').val() === root.child('families').child($familyId).child('trackingRequests').child($targetUid).child('id').val() && newData.child('mode').val() === root.child('families').child($familyId).child('trackingRequests').child($targetUid).child('mode').val() && now < root.child('families').child($familyId).child('trackingRequests').child($targetUid).child('requestedAt').val() + 900000",
+            "requestId": {
+              ".validate": "newData.isString()"
+            },
+            "mode": {
+              ".validate": "newData.isString()"
+            },
+            "respondedAt": {
+              ".validate": "newData.isNumber() && newData.val() === now"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "liveRequests": {
+          "$targetUid": {
+            "$requesterUid": {
+              ".write": "auth != null && auth.uid === $requesterUid && newData.exists() && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId && root.child('memberships').child($targetUid).child('familyId').val() === $familyId",
+              ".validate": "newData.hasChildren(['id', 'requestedAt']) && (!data.exists() || newData.child('id').val() !== data.child('id').val())",
+              "id": {
+                ".validate": "newData.isString() && newData.val().length === 36"
+              },
+              "requestedAt": {
+                ".validate": "newData.isNumber() && newData.val() === now"
+              },
+              "$other": {
+                ".validate": false
+              }
+            }
+          }
+        },
+        "liveAcks": {
+          "$targetUid": {
+            "$requesterUid": {
+              ".write": "auth != null && auth.uid === $targetUid && newData.exists() && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId",
+              ".validate": "newData.hasChildren(['requestId', 'state', 'respondedAt', 'expiresAt']) && newData.child('requestId').val() === root.child('families').child($familyId).child('liveRequests').child($targetUid).child($requesterUid).child('id').val() && newData.child('expiresAt').val() === root.child('families').child($familyId).child('liveRequests').child($targetUid).child($requesterUid).child('requestedAt').val() + 900000",
+              "requestId": {
+                ".validate": "newData.isString()"
+              },
+              "state": {
+                ".validate": "newData.val() === 'active' || newData.val() === 'stopped'"
+              },
+              "respondedAt": {
+                ".validate": "newData.isNumber() && newData.val() === now"
+              },
+              "expiresAt": {
+                ".validate": "newData.isNumber()"
+              },
+              "$other": {
+                ".validate": false
+              }
+            }
+          }
+        },
+        "locations": {
+          ".read": "auth != null && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId",
+          "$uid": {
+            ".write": "auth != null && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId && ((auth.uid === $uid && newData.exists()) || (!newData.exists() && data.exists() && data.child('measuredAt').val() <= root.child('families').child($familyId).child('historyDeletedThrough').child($uid).val()))",
+            ".validate": "newData.hasChildren(['label', 'latitude', 'longitude', 'accuracyMeters', 'measuredAt', 'receivedAt', 'batteryPercent']) && (!data.exists() || newData.child('measuredAt').val() >= data.child('measuredAt').val())",
+            "label": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 40"
+            },
+            "latitude": {
+              ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90"
+            },
+            "longitude": {
+              ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180"
+            },
+            "accuracyMeters": {
+              ".validate": "newData.isNumber() && newData.val() > 0 && newData.val() <= 100000"
+            },
+            "measuredAt": {
+              ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= now - 86400000 && newData.val() <= now + 60000 && (!root.child('families').child($familyId).child('historyDeletedThrough').child($uid).exists() || newData.val() > root.child('families').child($familyId).child('historyDeletedThrough').child($uid).val())"
+            },
+            "receivedAt": {
+              ".validate": "newData.isNumber() && newData.val() === now"
+            },
+            "batteryPercent": {
+              ".validate": "newData.isNumber() && newData.val() >= -1 && newData.val() <= 100"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "historyDeletedThrough": {
+          "$uid": {
+            ".write": "auth != null && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId && root.child('memberships').child($uid).child('familyId').val() === $familyId && newData.exists()",
+            ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 0 && newData.val() <= now + 60000 && (!data.exists() || newData.val() >= data.val())"
+          }
+        },
+        "historyOwners": {
+          "$uid": {
+            ".write": "auth != null && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId && auth.uid === $uid && root.child('memberships').child($uid).child('familyId').val() === $familyId && newData.val() === true",
+            ".validate": "newData.isBoolean() && newData.val() === true"
+          }
+        }
+      }
+    },
+    "history": {
+      "$familyId": {
+        "$uid": {
+          ".indexOn": [
+            "measuredAt"
+          ],
+          ".read": "auth != null && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId && (root.child('memberships').child($uid).child('familyId').val() === $familyId || root.child('families').child($familyId).child('historyOwners').child($uid).val() === true) && query.orderByChild === 'measuredAt' && query.limitToFirst != null && query.limitToFirst > 0 && query.limitToFirst <= 10000 && ((root.child('memberships').child($uid).child('familyId').val() === $familyId && query.startAt != null && query.endAt != null && query.startAt >= now - 2592000000 - 60000 && (!root.child('families').child($familyId).child('historyDeletedThrough').child($uid).exists() || query.startAt > root.child('families').child($familyId).child('historyDeletedThrough').child($uid).val()) && query.endAt >= query.startAt && query.endAt - query.startAt <= 90000000) || (query.endAt != null && query.limitToFirst <= 1000 && (query.endAt <= now - 2592000000 || (root.child('families').child($familyId).child('historyDeletedThrough').child($uid).exists() && query.endAt < root.child('families').child($familyId).child('historyDeletedThrough').child($uid).val() + 1))))",
+          "$pointId": {
+            ".write": "auth != null && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId && ((auth.uid === $uid && root.child('memberships').child($uid).child('familyId').val() === $familyId && newData.exists()) || (!newData.exists() && data.exists() && (data.child('measuredAt').val() <= now - 2592000000 || data.child('measuredAt').val() <= root.child('families').child($familyId).child('historyDeletedThrough').child($uid).val())))",
+            ".validate": "newData.hasChildren(['latitude', 'longitude', 'accuracyMeters', 'measuredAt', 'receivedAt', 'batteryPercent']) && (!data.exists() || (newData.child('latitude').val() === data.child('latitude').val() && newData.child('longitude').val() === data.child('longitude').val() && newData.child('accuracyMeters').val() === data.child('accuracyMeters').val() && newData.child('measuredAt').val() === data.child('measuredAt').val() && newData.child('batteryPercent').val() === data.child('batteryPercent').val()))",
+            "latitude": {
+              ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90"
+            },
+            "longitude": {
+              ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180"
+            },
+            "accuracyMeters": {
+              ".validate": "newData.isNumber() && newData.val() > 0 && newData.val() <= 100000"
+            },
+            "measuredAt": {
+              ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= now - 2592000000 && newData.val() <= now + 60000 && (!root.child('families').child($familyId).child('historyDeletedThrough').child($uid).exists() || newData.val() > root.child('families').child($familyId).child('historyDeletedThrough').child($uid).val())"
+            },
+            "receivedAt": {
+              ".validate": "newData.isNumber() && newData.val() === now"
+            },
+            "batteryPercent": {
+              ".validate": "newData.isNumber() && newData.val() >= -1 && newData.val() <= 100"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        }
+      }
+    }
+  }
+}

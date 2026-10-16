@@ -55,7 +55,10 @@ Powstaną dwa pliki poza Gitem:
 
 Skrypt sprawdza podpis APK i jego rzeczywisty pakiet oraz wersję. Odrzuca build debug.
 Pliki muszą pochodzić z tego samego uruchomienia skryptu.
-W następnej wersji użyj np. `-VersionCode 3 -VersionName 0.2.1`.
+Wersja z listą członków i zdalnymi pomiarami używa `-VersionCode 3 -VersionName 0.3.0`.
+Wersja z wyborem ikon używa `-VersionCode 4 -VersionName 0.4.0`.
+Wersja z wyborem osoby i automatycznym dopasowaniem mapy używa `-VersionCode 5 -VersionName 0.5.0`.
+Przed jej instalacją wdroż aktualne reguły RTDB zgodnie z `SETUP_FIREBASE.md`.
 
 ## Publikacja ręczna
 

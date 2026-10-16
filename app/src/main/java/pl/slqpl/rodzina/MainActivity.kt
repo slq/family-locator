@@ -33,15 +33,11 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.google.android.gms.maps.model.CameraPosition
-import com.google.android.gms.maps.model.LatLng
-import com.google.maps.android.compose.*
 import kotlinx.coroutines.delay
-import pl.slqpl.rodzina.cloud.FamilyPosition
-import pl.slqpl.rodzina.data.LocationSample
 import pl.slqpl.rodzina.location.LocationSharingService
 import pl.slqpl.rodzina.location.TrackingMode
 import pl.slqpl.rodzina.ui.LocatorViewModel
+import pl.slqpl.rodzina.ui.FamilyOverview
 import pl.slqpl.rodzina.updates.UpdatesPanel
 import java.text.DateFormat
 import java.util.Date
@@ -68,6 +64,8 @@ private fun LocatorScreen(vm: LocatorViewModel = viewModel()) {
     val family by vm.family.collectAsStateWithLifecycle()
     val cloudMessage by vm.cloudMessage.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
+    val memberBusy by vm.memberBusy.collectAsStateWithLifecycle()
+    val memberMessage by vm.memberMessage.collectAsStateWithLifecycle()
     val prefs = remember { context.getSharedPreferences("settings", MODE_PRIVATE) }
     val sharingServiceIntent = remember(context) { Intent(context, LocationSharingService::class.java) }
     var label by rememberSaveable { mutableStateOf(prefs.getString("label", Build.MODEL).orEmpty()) }
@@ -131,7 +129,7 @@ private fun LocatorScreen(vm: LocatorViewModel = viewModel()) {
                 if (status.mode == TrackingMode.LIVE) Text("Powrót do trybu okresowego za ${status.remainingSeconds / 60}:${(status.remainingSeconds % 60).toString().padStart(2, '0')}")
             }
             Text(status.message)
-            OutlinedTextField(value = label, onValueChange = { label = it.take(40) }, label = { Text("Nazwa telefonu / osoby") }, enabled = !status.running, singleLine = true, modifier = Modifier.fillMaxWidth())
+            if (user == null) OutlinedTextField(value = label, onValueChange = { label = it.take(40) }, label = { Text("Nazwa telefonu / osoby") }, enabled = !status.running, singleLine = true, modifier = Modifier.fillMaxWidth())
             if (status.running) {
                 Button(onClick = { context.stopService(sharingServiceIntent) }, modifier = Modifier.fillMaxWidth()) { Text("Zatrzymaj pomiary i wysyłanie") }
                 OutlinedButton(onClick = { requestSharing(if (status.mode == TrackingMode.LIVE) LocationSharingService.ACTION_PERIODIC else LocationSharingService.ACTION_LIVE) }, modifier = Modifier.fillMaxWidth()) {
@@ -155,8 +153,9 @@ private fun LocatorScreen(vm: LocatorViewModel = viewModel()) {
             Text("Oczekujące punkty: $pending")
             status.lastUploadAt?.let { Text("Ostatnie potwierdzenie serwera: ${DateFormat.getTimeInstance().format(Date(it))}") }
         }
-        if (BuildConfig.MAPS_CONFIGURED) FamilyMap(latest, family, user?.uid)
-        else Panel { Text("Mapa pojawi się po skonfigurowaniu klucza Google Maps. Pomiary lokalne działają bez niego.") }
+        FamilyOverview(family, latest, user?.uid, now + family.serverTimeOffset,
+            memberBusy, memberMessage.ifBlank { cloudMessage }, BuildConfig.MAPS_CONFIGURED,
+            vm::renameMember, vm::requestLive, vm::setOwnIcon)
 
         Panel {
             Text("Rodzina w chmurze", style = MaterialTheme.typography.titleMedium)
@@ -170,15 +169,9 @@ private fun LocatorScreen(vm: LocatorViewModel = viewModel()) {
                 Text(user?.email.orEmpty())
                 SelectionContainer { Text("UID: ${user?.uid}", style = MaterialTheme.typography.bodySmall) }
                 Text("W prototypie konto przypisuje do rodziny administrator. Jeden telefon na konto.")
-                OutlinedButton(onClick = vm::signOut, enabled = !status.running && !busy) { Text("Wyloguj i usuń lokalne pomiary") }
+                OutlinedButton(onClick = vm::signOut, enabled = !status.running && !busy && memberBusy == null) { Text("Wyloguj i usuń lokalne pomiary") }
                 OutlinedButton(onClick = vm::refreshFamily) { Text("Odśwież rodzinę") }
-                family.forEach { person ->
-                    HorizontalDivider()
-                    Text(person.label.ifBlank { "Członek rodziny" }, fontWeight = FontWeight.SemiBold)
-                    Text("${ageText(person.measuredAt, now)} • dokładność ${person.accuracyMeters.toInt()} m • bateria ${person.batteryPercent}%")
-                }
-                if (family.isEmpty()) Text("Brak dostępnych pozycji rodziny.")
-                Text("W tej wersji otwarcie mapy nie zmienia zdalnie częstotliwości pomiarów.", style = MaterialTheme.typography.bodySmall)
+                Text("Zdalne pomiary włączysz przyciskiem przy osobie na liście rodziny.", style = MaterialTheme.typography.bodySmall)
             }
             if (cloudMessage.isNotBlank()) Text(cloudMessage, color = MaterialTheme.colorScheme.error)
         }
@@ -197,31 +190,6 @@ private fun LocatorScreen(vm: LocatorViewModel = viewModel()) {
 @Composable
 private fun Panel(content: @Composable ColumnScope.() -> Unit) {
     Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content) }
-}
-
-@Composable
-private fun FamilyMap(local: LocationSample?, family: List<FamilyPosition>, currentUid: String?) {
-    val initial = local?.let { LatLng(it.latitude, it.longitude) }
-        ?: family.firstOrNull()?.let { LatLng(it.latitude, it.longitude) }
-    val camera = rememberCameraPositionState { position = CameraPosition.fromLatLngZoom(LatLng(52.0, 19.0), 5f) }
-    var centered by remember { mutableStateOf(false) }
-    LaunchedEffect(initial) {
-        if (!centered && initial != null) { camera.position = CameraPosition.fromLatLngZoom(initial, 15f); centered = true }
-    }
-    GoogleMap(Modifier.fillMaxWidth().height(300.dp), cameraPositionState = camera,
-        uiSettings = MapUiSettings(zoomControlsEnabled = true)) {
-        if (local != null && family.none { it.uid == currentUid }) {
-            val position = LatLng(local.latitude, local.longitude)
-            Marker(state = remember(position) { MarkerState(position) }, title = "Ten telefon")
-            Circle(center = position, radius = local.accuracyMeters.toDouble(), fillColor = Color(0x20176B5B), strokeColor = Color(0xFF176B5B), strokeWidth = 2f)
-        }
-        family.forEach { person -> key(person.uid) {
-            val position = LatLng(person.latitude, person.longitude)
-            Marker(state = remember(position) { MarkerState(position) }, title = person.label,
-                snippet = "Pomiar: ${DateFormat.getDateTimeInstance().format(Date(person.measuredAt))}")
-            Circle(center = position, radius = person.accuracyMeters.toDouble(), fillColor = Color(0x20176B5B), strokeColor = Color(0xFF176B5B), strokeWidth = 2f)
-        } }
-    }
 }
 
 private fun yesNo(value: Boolean) = if (value) "tak" else "nie"

@@ -30,8 +30,9 @@ android {
         applicationId = "pl.slqpl.rodzina"
         minSdk = 26
         targetSdk = 35
-        versionCode = providers.gradleProperty("appVersionCode").getOrElse("2").toInt().also { require(it > 0) }
-        versionName = providers.gradleProperty("appVersionName").getOrElse("0.2.0").also {
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        versionCode = providers.gradleProperty("appVersionCode").getOrElse("5").toInt().also { require(it > 0) }
+        versionName = providers.gradleProperty("appVersionName").getOrElse("0.5.0").also {
             require(it.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+"))) { "Use a version such as 0.2.0" }
         }
         buildConfigField("boolean", "FIREBASE_CONFIGURED", firebaseConfigured.toString())
@@ -76,4 +77,8 @@ dependencies {
     implementation("com.google.firebase:firebase-database")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.1")
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2025.04.01"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

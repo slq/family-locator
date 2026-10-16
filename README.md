@@ -3,14 +3,14 @@
 Prywatna aplikacja Android dla rodziny: Samsung S10, S10 i A54. Kotlin, Compose,
 Fused Location Provider, Room i opcjonalny Firebase Realtime Database.
 
-## Status: prototyp 0.2
+## Status: prototyp 0.5
 
 To pierwszy działający etap, **nie gotowy system zdalnego monitorowania**.
 APK bez konfiguracji działa jako lokalny tester GPS. Nie wymaga konta Firebase
 ani klucza map. Po konfiguracji obsługuje logowanie, wysyłanie ostatniej pozycji
 i podgląd pozycji rodziny. Usługa jest uruchamiana świadomie z ekranu aplikacji.
 
-| Funkcja | Wersja 0.2 |
+| Funkcja | Wersja 0.5 |
 |---|---|
 | Pomiary przy wygaszonym ekranie z widocznym powiadomieniem | Tak; do weryfikacji na telefonach |
 | Tryb okresowy / dokładny | Około 3 min / 10 s; dokładny wygasa lokalnie po 15 min |
@@ -20,7 +20,10 @@ i podgląd pozycji rodziny. Usługa jest uruchamiana świadomie z ekranu aplikac
 | Logowanie, ostatnie pozycje rodziny | Po konfiguracji Firebase i ręcznym przypisaniu kont |
 | Mapa i obszar dokładności | Po dodaniu klucza Maps SDK; bez Map ID |
 | Aktualizacje z aplikacji | Od 0.2.0: GitHub Releases, pobranie APK i instalator Androida |
-| Zdalne zwiększanie częstotliwości przez FCM | Następny etap |
+| Lista wszystkich członków i wspólne nazwy | Każdy członek rodziny, również osoby bez zapisanej pozycji |
+| Własne ikonki na mapie | 12 symboli do wyboru, kolor i numer członka; wybór synchronizowany z rodziną |
+| Wybór osoby i widok całej rodziny | Dotknięcie osoby przybliża jej pozycję; automatyczne dopasowanie i śledzenie kolejnych pomiarów |
+| Zdalne dokładne pomiary przez 15 min | Tak, przy działającym udostępnianiu; potwierdzenie odbiorcy i automatyczne wygaśnięcie |
 | Automatyczne rozpoznawanie ruchu / tryb 15 min w bezruchu | Następny etap |
 | Zaproszenia QR, historia tras, geofencing | Kolejne etapy |
 | Automatyczne wznowienie po restarcie / ubiciu procesu | Nie; ponownie uruchom z aplikacji |
@@ -86,7 +89,9 @@ npm run test:rules
 Testy reguł korzystają wyłącznie z lokalnego emulatora i projektu
 `demo-family-locator`. Nie wymagają logowania ani billingów Google.
 Sprawdzają m.in. izolację rodzin, podszywanie się pod inną osobę, cofnięcie
-członkostwa, walidację współrzędnych i ochronę przed starszym punktem offline.
+członkostwa, walidację współrzędnych i ochronę przed starszym punktem offline,
+listę członków, wspólne nazwy, autorstwo żądań i potwierdzeń. Testy Kotlin sprawdzają
+także wygaśnięcie zdalnych sesji, brak ponownego wykonania i potwierdzanie stanu.
 
 Plan testów na telefonach: [docs/DEVICE_TESTS.md](docs/DEVICE_TESTS.md).
 Podpisywanie i publikacja aktualizacji: [docs/UPDATES.md](docs/UPDATES.md).

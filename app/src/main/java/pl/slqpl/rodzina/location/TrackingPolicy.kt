@@ -8,13 +8,15 @@ enum class TrackingMode(val intervalMillis: Long, val label: String) {
 /** A monotonic deadline prevents wall-clock changes from extending a live session. */
 class TrackingPolicy {
     private var liveUntilElapsed = 0L
+    private var remoteUntilElapsed = 0L
 
     fun startLive(elapsedMillis: Long) { liveUntilElapsed = elapsedMillis + LIVE_DURATION }
-    fun reset() { liveUntilElapsed = 0 }
+    fun setRemoteDeadline(deadlineElapsed: Long) { remoteUntilElapsed = deadlineElapsed }
+    fun reset() { liveUntilElapsed = 0; remoteUntilElapsed = 0 }
     fun mode(elapsedMillis: Long): TrackingMode =
-        if (elapsedMillis < liveUntilElapsed) TrackingMode.LIVE else TrackingMode.PERIODIC
+        if (elapsedMillis < maxOf(liveUntilElapsed, remoteUntilElapsed)) TrackingMode.LIVE else TrackingMode.PERIODIC
     fun remainingSeconds(elapsedMillis: Long): Long =
-        ((liveUntilElapsed - elapsedMillis).coerceAtLeast(0) + 999) / 1000
+        ((maxOf(liveUntilElapsed, remoteUntilElapsed) - elapsedMillis).coerceAtLeast(0) + 999) / 1000
 
     companion object { const val LIVE_DURATION = 15 * 60 * 1000L }
 }

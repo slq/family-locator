@@ -10,8 +10,11 @@ import android.os.*
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import com.google.android.gms.location.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import pl.slqpl.rodzina.FamilyLocatorApp
@@ -25,6 +28,14 @@ class LocationSharingService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val policy = TrackingPolicy()
     private val syncMutex = Mutex()
+    private val presenceMutex = Mutex()
+    private var remotePolicy = RemoteLivePolicy()
+    private val pendingAcknowledgments = mutableMapOf<String, RemoteLiveRequest>()
+    private var connected = false
+    private var presenceReady = false
+    private var serverTimeOffset = 0L
+    private var cleanedUp = false
+    private var notifiedRemote = false
     private val fused by lazy { LocationServices.getFusedLocationProviderClient(this) }
     private var appliedMode: TrackingMode? = null
     private var started = false
@@ -72,7 +83,16 @@ class LocationSharingService : Service() {
             return START_NOT_STICKY
         }
         if (intent.action == ACTION_LIVE) policy.startLive(SystemClock.elapsedRealtime())
-        if (intent.action == ACTION_PERIODIC) policy.reset()
+        if (intent.action == ACTION_PERIODIC) {
+            val cancelled = remotePolicy.cancel()
+            pendingAcknowledgments.clear()
+            policy.reset()
+            ownerUid?.let { uid -> scope.launch {
+                try { withTimeout(5_000) { app.cloud.acknowledge(uid, cancelled, "stopped") } }
+                catch (cancelled: CancellationException) { if (cancelled !is TimeoutCancellationException) throw cancelled }
+                catch (_: Exception) { /* The device mode and heartbeat also reflect the local stop. */ }
+            } }
+        }
         try {
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(NotificationChannel(CHANNEL, "Udostępnianie lokalizacji", NotificationManager.IMPORTANCE_LOW))
@@ -81,7 +101,16 @@ class LocationSharingService : Service() {
             if (!started) {
                 ownerUid = app.cloud.user.value?.uid
                 label = getSharedPreferences("settings", MODE_PRIVATE).getString("label", Build.MODEL).orEmpty()
+                ownerUid?.let { uid ->
+                    val prefix = "$uid:"
+                    val consumed = getSharedPreferences("remote_live", MODE_PRIVATE).all
+                        .filterKeys { it.startsWith(prefix) }.mapNotNull { (key, value) ->
+                            (value as? String)?.let { key.removePrefix(prefix) to it }
+                        }.toMap().toMutableMap()
+                    remotePolicy = RemoteLivePolicy(consumed)
+                }
                 started = true
+                ownerUid?.let { uid -> scope.launch { receiveRemoteRequests(uid) } }
                 scope.launch {
                     while (isActive) {
                         applyMode()
@@ -91,6 +120,8 @@ class LocationSharingService : Service() {
                 scope.launch {
                     while (isActive) {
                         syncPending()
+                        flushAcknowledgments()
+                        publishPresence()
                         delay(30_000)
                     }
                 }
@@ -109,10 +140,20 @@ class LocationSharingService : Service() {
 
     @SuppressLint("MissingPermission") // Both runtime permissions and start context are checked above.
     private fun applyMode() {
-        val mode = policy.mode(SystemClock.elapsedRealtime())
+        val elapsedNow = SystemClock.elapsedRealtime()
+        policy.setRemoteDeadline(remotePolicy.deadline(elapsedNow))
+        val mode = policy.mode(elapsedNow)
         app.tracking.update { it.copy(running = true, mode = mode,
             remainingSeconds = policy.remainingSeconds(SystemClock.elapsedRealtime())) }
-        if (appliedMode == mode) return
+        val remoteActive = remotePolicy.active(elapsedNow).isNotEmpty()
+        if (appliedMode == mode) {
+            if (notifiedRemote != remoteActive) {
+                notifiedRemote = remoteActive
+                getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification())
+            }
+            return
+        }
+        notifiedRemote = remoteActive
         appliedMode = mode
         fused.removeLocationUpdates(callback)
         val priority = if (mode == TrackingMode.LIVE) Priority.PRIORITY_HIGH_ACCURACY else Priority.PRIORITY_BALANCED_POWER_ACCURACY
@@ -128,10 +169,75 @@ class LocationSharingService : Service() {
                     shutdown()
                 }
             getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification())
+            scope.launch { publishPresence() }
         } catch (_: SecurityException) {
             app.tracking.update { it.copy(message = "Cofnięto uprawnienie lokalizacji") }
             shutdown()
         }
+    }
+
+    private suspend fun receiveRemoteRequests(uid: String) {
+        app.cloud.observeRemoteControl(uid).retryWhen { error, _ ->
+            if (error is CancellationException) throw error
+            connected = false; presenceReady = false
+            remotePolicy.cancel(); pendingAcknowledgments.clear()
+            if (started) {
+                applyMode()
+                app.tracking.update { it.copy(message = "Brak zdalnego sterowania. Sprawdź połączenie i reguły rodziny.") }
+            }
+            delay(5_000)
+            started && app.cloud.user.value?.uid == uid
+        }.collect { control ->
+            if (!started || app.cloud.user.value?.uid != uid) return@collect
+            serverTimeOffset = control.serverTimeOffset
+            connected = control.connected
+            if (!connected) { presenceReady = false; return@collect }
+            val accepted = remotePolicy.reconcile(control.requests,
+                System.currentTimeMillis() + serverTimeOffset, SystemClock.elapsedRealtime())
+            getSharedPreferences("remote_live", MODE_PRIVATE).edit {
+                remotePolicy.consumed.forEach { (requester, requestId) -> putString("$uid:$requester", requestId) }
+            }
+            accepted.forEach { pendingAcknowledgments[it.requesterUid] = it }
+            applyMode()
+            if (!started) return@collect
+            if (accepted.isNotEmpty()) app.tracking.update {
+                it.copy(message = "Włączono dokładne pomiary na prośbę rodziny")
+            }
+            flushAcknowledgments()
+            publishPresence()
+        }
+    }
+
+    private suspend fun flushAcknowledgments() {
+        val uid = ownerUid ?: return
+        if (!started || !connected) return
+        val active = remotePolicy.active(SystemClock.elapsedRealtime()).associateBy { it.requesterUid }
+        pendingAcknowledgments.entries.removeAll { (key, request) -> active[key]?.id != request.id }
+        val pending = pendingAcknowledgments.values.toList()
+        if (pending.isEmpty()) return
+        try {
+            withTimeout(5_000) { app.cloud.acknowledge(uid, pending, "active") }
+            pending.forEach { if (pendingAcknowledgments[it.requesterUid]?.id == it.id) pendingAcknowledgments.remove(it.requesterUid) }
+        } catch (cancelled: CancellationException) {
+            if (cancelled !is TimeoutCancellationException) throw cancelled
+        } catch (_: Exception) { /* Keep unacknowledged requests for the next online heartbeat. */ }
+    }
+
+    private suspend fun publishPresence() = presenceMutex.withLock {
+        val uid = ownerUid ?: return@withLock
+        if (!started || !connected || app.cloud.user.value?.uid != uid) return@withLock
+        try {
+            withTimeout(5_000) {
+                if (!presenceReady) { app.cloud.registerDisconnect(uid); presenceReady = true }
+                val elapsedNow = SystemClock.elapsedRealtime()
+                val mode = policy.mode(elapsedNow)
+                val until = if (mode == TrackingMode.LIVE)
+                    System.currentTimeMillis() + serverTimeOffset + policy.remainingSeconds(elapsedNow) * 1000 else 0
+                app.cloud.publishDevice(uid, mode, until)
+            }
+        } catch (cancelled: CancellationException) {
+            if (cancelled !is TimeoutCancellationException) throw cancelled
+        } catch (_: Exception) { /* Old heartbeats become unavailable after ninety seconds. */ }
     }
 
     private suspend fun syncPending() = syncMutex.withLock {
@@ -161,26 +267,30 @@ class LocationSharingService : Service() {
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_location)
             .setContentTitle(if (destination == null) "Rodzina — lokalny test lokalizacji" else "Udostępniasz lokalizację rodzinie")
-            .setContentText(policy.mode(SystemClock.elapsedRealtime()).label)
+            .setContentText(if (remotePolicy.active(SystemClock.elapsedRealtime()).isNotEmpty())
+                "Dokładne pomiary — prośba rodziny" else policy.mode(SystemClock.elapsedRealtime()).label)
             .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true)
             .addAction(0, "Zatrzymaj", stop).build()
     }
 
-    private fun shutdown() {
+    private fun cleanup() {
+        if (cleanedUp) return
+        cleanedUp = true
         started = false
+        val cancelled = remotePolicy.cancel()
         scope.cancel()
         fused.removeLocationUpdates(callback)
         app.cloud.cancelPendingWrites()
+        ownerUid?.let { app.cloud.stopDevice(it, cancelled) }
         app.tracking.update { it.copy(running = false, remainingSeconds = 0) }
+    }
+    private fun shutdown() {
+        cleanup()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
     override fun onDestroy() {
-        started = false
-        scope.cancel()
-        fused.removeLocationUpdates(callback)
-        app.cloud.cancelPendingWrites()
-        app.tracking.update { it.copy(running = false, remainingSeconds = 0) }
+        cleanup()
         super.onDestroy()
     }
 

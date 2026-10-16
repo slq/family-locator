@@ -3,12 +3,62 @@
     ".read": false,
     ".write": false,
     "memberships": {
+      ".indexOn": ["familyId"],
+      ".read": "auth != null && root.child('memberships').child(auth.uid).child('familyId').isString() && query.orderByChild === 'familyId' && query.equalTo === root.child('memberships').child(auth.uid).child('familyId').val()",
       "$uid": {
         ".read": "auth != null && auth.uid === $uid"
       }
     },
     "families": {
       "$familyId": {
+        ".read": "auth != null && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId",
+        "memberIcons": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId",
+            ".validate": "newData.isString() && (newData.val() === 'cat' || newData.val() === 'dog' || newData.val() === 'fox' || newData.val() === 'bear' || newData.val() === 'panda' || newData.val() === 'rabbit' || newData.val() === 'koala' || newData.val() === 'tiger' || newData.val() === 'lion' || newData.val() === 'owl' || newData.val() === 'frog' || newData.val() === 'penguin')"
+          }
+        },
+        "memberNames": {
+          "$uid": {
+            ".write": "auth != null && newData.exists() && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId && root.child('memberships').child($uid).child('familyId').val() === $familyId",
+            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 40 && newData.val().matches(/.*[^ ].*/)"
+          }
+        },
+        "devices": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && newData.exists() && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId",
+            ".validate": "newData.hasChildren(['sharing', 'mode', 'updatedAt', 'liveUntil']) && ((newData.child('sharing').val() === false && newData.child('mode').val() === 'stopped' && newData.child('liveUntil').val() === 0) || (newData.child('sharing').val() === true && ((newData.child('mode').val() === 'periodic' && newData.child('liveUntil').val() === 0) || (newData.child('mode').val() === 'live' && newData.child('liveUntil').val() > now && newData.child('liveUntil').val() <= now + 910000))))",
+            "sharing": { ".validate": "newData.isBoolean()" },
+            "mode": { ".validate": "newData.isString()" },
+            "updatedAt": { ".validate": "newData.isNumber() && newData.val() === now" },
+            "liveUntil": { ".validate": "newData.isNumber()" },
+            "$other": { ".validate": false }
+          }
+        },
+        "liveRequests": {
+          "$targetUid": {
+            "$requesterUid": {
+              ".write": "auth != null && auth.uid === $requesterUid && newData.exists() && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId && root.child('memberships').child($targetUid).child('familyId').val() === $familyId",
+              ".validate": "newData.hasChildren(['id', 'requestedAt']) && (!data.exists() || newData.child('id').val() !== data.child('id').val())",
+              "id": { ".validate": "newData.isString() && newData.val().length === 36" },
+              "requestedAt": { ".validate": "newData.isNumber() && newData.val() === now" },
+              "$other": { ".validate": false }
+            }
+          }
+        },
+        "liveAcks": {
+          "$targetUid": {
+            "$requesterUid": {
+              ".write": "auth != null && auth.uid === $targetUid && newData.exists() && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId",
+              ".validate": "newData.hasChildren(['requestId', 'state', 'respondedAt', 'expiresAt']) && newData.child('requestId').val() === root.child('families').child($familyId).child('liveRequests').child($targetUid).child($requesterUid).child('id').val() && newData.child('expiresAt').val() === root.child('families').child($familyId).child('liveRequests').child($targetUid).child($requesterUid).child('requestedAt').val() + 900000",
+              "requestId": { ".validate": "newData.isString()" },
+              "state": { ".validate": "newData.val() === 'active' || newData.val() === 'stopped'" },
+              "respondedAt": { ".validate": "newData.isNumber() && newData.val() === now" },
+              "expiresAt": { ".validate": "newData.isNumber()" },
+              "$other": { ".validate": false }
+            }
+          }
+        },
         "locations": {
           ".read": "auth != null && root.child('memberships').child(auth.uid).child('familyId').val() === $familyId",
           "$uid": {

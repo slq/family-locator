@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -38,6 +40,9 @@ import pl.slqpl.rodzina.location.LocationSharingService
 import pl.slqpl.rodzina.location.TrackingMode
 import pl.slqpl.rodzina.ui.LocatorViewModel
 import pl.slqpl.rodzina.ui.FamilyOverview
+import pl.slqpl.rodzina.ui.TrackingControls
+import pl.slqpl.rodzina.ui.HistoryPanel
+import pl.slqpl.rodzina.cloud.HistoryPolicy
 import pl.slqpl.rodzina.updates.UpdatesPanel
 import java.text.DateFormat
 import java.util.Date
@@ -66,6 +71,13 @@ private fun LocatorScreen(vm: LocatorViewModel = viewModel()) {
     val busy by vm.busy.collectAsStateWithLifecycle()
     val memberBusy by vm.memberBusy.collectAsStateWithLifecycle()
     val memberMessage by vm.memberMessage.collectAsStateWithLifecycle()
+    val history by vm.history.collectAsStateWithLifecycle()
+    val historyBusy by vm.historyBusy.collectAsStateWithLifecycle()
+    val historyMessage by vm.historyMessage.collectAsStateWithLifecycle()
+    val historyRequester = remember { BringIntoViewRequester() }
+    var historyScrollRequest by remember { mutableIntStateOf(0) }
+    LaunchedEffect(historyScrollRequest) { if (historyScrollRequest > 0) historyRequester.bringIntoView() }
+    LaunchedEffect(user?.uid) { vm.maintainHistory() }
     val prefs = remember { context.getSharedPreferences("settings", MODE_PRIVATE) }
     val sharingServiceIntent = remember(context) { Intent(context, LocationSharingService::class.java) }
     var label by rememberSaveable { mutableStateOf(prefs.getString("label", Build.MODEL).orEmpty()) }
@@ -116,31 +128,51 @@ private fun LocatorScreen(vm: LocatorViewModel = viewModel()) {
             permissionRequest.launch(permissions.toTypedArray())
         }
     }
+    fun changeOwnTracking(mode: TrackingMode) {
+        if (mode == TrackingMode.STOPPED) {
+            if (!status.running || user == null) {
+                context.stopService(sharingServiceIntent)
+                vm.report("Udostępnianie i sterowanie rodzinne są wyłączone.")
+            } else {
+                // Stopping must work even if a permission or notifications were just disabled.
+                launchSharing(LocationSharingService.ACTION_PAUSE)
+            }
+            return
+        }
+        requestSharing(when (mode) {
+            TrackingMode.PERIODIC -> LocationSharingService.ACTION_PERIODIC
+            TrackingMode.LIVE -> LocationSharingService.ACTION_LIVE
+            TrackingMode.STOPPED -> LocationSharingService.ACTION_PAUSE
+        })
+    }
 
     Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Rodzina", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
         Text("Lokalizacja bliskich • ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyMedium)
         UpdatesPanel(sharing = status.running)
         Panel {
-            Text(if (status.running) "Pomiary włączone" else "Pomiary zatrzymane", style = MaterialTheme.typography.titleLarge)
-            Text(if (user == null) "Tryb lokalny: pozycja zostaje na tym telefonie." else "Pozycja jest wysyłana do Twojej rodziny w Firebase.")
-            if (status.running) {
+            Text(if (status.sharing) "Udostępnianie tego telefonu" else "Udostępnianie wyłączone", style = MaterialTheme.typography.titleLarge)
+            Text(if (user == null) "Tryb lokalny: pozycja zostaje na tym telefonie."
+                else if (status.sharing) "Pozycja jest wysyłana do Twojej rodziny."
+                else "Nie pobieramy ani nie wysyłamy nowych pozycji.")
+            if (status.sharing) {
                 Text(status.mode.label)
                 if (status.mode == TrackingMode.LIVE) Text("Powrót do trybu okresowego za ${status.remainingSeconds / 60}:${(status.remainingSeconds % 60).toString().padStart(2, '0')}")
             }
             Text(status.message)
             if (user == null) OutlinedTextField(value = label, onValueChange = { label = it.take(40) }, label = { Text("Nazwa telefonu / osoby") }, enabled = !status.running, singleLine = true, modifier = Modifier.fillMaxWidth())
+            TrackingControls("self", status.mode, enabled = !busy && memberBusy == null, onSelect = ::changeOwnTracking)
             if (status.running) {
-                Button(onClick = { context.stopService(sharingServiceIntent) }, modifier = Modifier.fillMaxWidth()) { Text("Zatrzymaj pomiary i wysyłanie") }
-                OutlinedButton(onClick = { requestSharing(if (status.mode == TrackingMode.LIVE) LocationSharingService.ACTION_PERIODIC else LocationSharingService.ACTION_LIVE) }, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (status.mode == TrackingMode.LIVE) "Wróć do trybu okresowego" else "Dokładne pomiary przez 15 minut")
+                Text("Sterowanie rodzinne włączone. Rodzina może zmieniać tryb i wznowić udostępnianie, także przy wygaszonym ekranie.", style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = { context.stopService(sharingServiceIntent) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Wyłącz udostępnianie i sterowanie rodzinne")
                 }
-            } else {
-                Button(onClick = { requestSharing(LocationSharingService.ACTION_START) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (user == null) "Rozpocznij test lokalny" else "Udostępniaj rodzinie")
-                }
-                OutlinedButton(onClick = { requestSharing(LocationSharingService.ACTION_LIVE) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Dokładne pomiary przez 15 minut") }
+            } else if (user != null) {
+                OutlinedButton(onClick = { requestSharing(LocationSharingService.ACTION_PAUSE) }, enabled = !busy && memberBusy == null,
+                    modifier = Modifier.fillMaxWidth()) { Text("Włącz sterowanie rodzinne bez pomiarów") }
             }
+            Text("Wyłączenie udostępniania pozostawia odbiór poleceń z widocznym powiadomieniem. Tryb dokładny wraca po 15 min do zwykłego udostępniania.",
+                style = MaterialTheme.typography.bodySmall)
         }
         Panel {
             Text("Ostatni pomiar tego telefonu", style = MaterialTheme.typography.titleMedium)
@@ -155,7 +187,15 @@ private fun LocatorScreen(vm: LocatorViewModel = viewModel()) {
         }
         FamilyOverview(family, latest, user?.uid, now + family.serverTimeOffset,
             memberBusy, memberMessage.ifBlank { cloudMessage }, BuildConfig.MAPS_CONFIGURED,
-            vm::renameMember, vm::requestLive, vm::setOwnIcon)
+            vm::renameMember, onTracking = { uid, mode ->
+                if (uid == user?.uid) changeOwnTracking(mode) else vm.requestTracking(uid, mode)
+            }, onChooseIcon = vm::setOwnIcon, ownMode = status.mode, onShowHistory = { uid ->
+                vm.showHistory(uid, HistoryPolicy.day(now + family.serverTimeOffset)); historyScrollRequest++
+            })
+        user?.uid?.let { uid -> key(uid) {
+            HistoryPanel(family.members, uid, now + family.serverTimeOffset, history, historyBusy, historyMessage,
+                BuildConfig.MAPS_CONFIGURED, vm::showHistory, vm::deleteHistory, Modifier.bringIntoViewRequester(historyRequester))
+        } }
 
         Panel {
             Text("Rodzina w chmurze", style = MaterialTheme.typography.titleMedium)
@@ -169,9 +209,9 @@ private fun LocatorScreen(vm: LocatorViewModel = viewModel()) {
                 Text(user?.email.orEmpty())
                 SelectionContainer { Text("UID: ${user?.uid}", style = MaterialTheme.typography.bodySmall) }
                 Text("W prototypie konto przypisuje do rodziny administrator. Jeden telefon na konto.")
-                OutlinedButton(onClick = vm::signOut, enabled = !status.running && !busy && memberBusy == null) { Text("Wyloguj i usuń lokalne pomiary") }
+                OutlinedButton(onClick = vm::signOut, enabled = !status.running && !busy && memberBusy == null && !historyBusy) { Text("Wyloguj i usuń lokalne pomiary") }
                 OutlinedButton(onClick = vm::refreshFamily) { Text("Odśwież rodzinę") }
-                Text("Zdalne pomiary włączysz przyciskiem przy osobie na liście rodziny.", style = MaterialTheme.typography.bodySmall)
+                Text("Tryb udostępniania zmienisz przy każdej osobie na liście rodziny. Przed wylogowaniem wyłącz też sterowanie rodzinne.", style = MaterialTheme.typography.bodySmall)
             }
             if (cloudMessage.isNotBlank()) Text(cloudMessage, color = MaterialTheme.colorScheme.error)
         }

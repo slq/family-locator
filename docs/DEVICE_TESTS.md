@@ -14,11 +14,12 @@ Nie wrzucaj prawdziwych współrzędnych do publicznych issues.
 | Odmowa powiadomień | Pomiar nie startuje bez widocznej informacji systemowej |
 | Tryb dokładny na zewnątrz, potem ekran wyłączony na 20 min | Świeże punkty; po 15 min powrót do żądania 3 min |
 | Zmiana zegara podczas trybu dokładnego | Nie przedłuża 15-minutowej sesji |
-| Stop w powiadomieniu | Usługa i pomiary kończą się, brak dalszych wysyłek |
-| Utrata internetu na 5 min, potem powrót | Room przechowuje punkty; ostatni trafia do chmury po połączeniu |
+| Wyłączenie udostępniania w powiadomieniu | Pomiary i wysyłki kończą się; odbiór poleceń pozostaje, powiadomienie opisuje pauzę |
+| Wyłącz też sterowanie w powiadomieniu | Cała usługa kończy się; brak dalszych wysyłek i zdalnego wznowienia |
+| Utrata internetu na 5 min, potem powrót | Room przechowuje punkty; wszystkie trafiają do historii, ostatni również na bieżącą mapę |
 | Stop bez internetu, potem powrót sieci | SDK nie wysyła oczekujących zapisów po zatrzymaniu |
 | Logowanie po teście lokalnym | Stare punkty lokalne nie są wysyłane |
-| Wylogowanie | Wymaga Stop; lokalne punkty są usuwane |
+| Wylogowanie | Wymaga wyłączenia całej usługi, także sterowania; lokalne punkty są usuwane |
 | Konto bez membership | Brak danych rodziny i brak udanej wysyłki |
 | Dwa różne UID tej samej rodziny | Każdy widzi pozycje obu telefonów |
 | Członek rodziny bez pomiaru | Widoczny na liście z informacją o braku pozycji |
@@ -37,10 +38,23 @@ Nie wrzucaj prawdziwych współrzędnych do publicznych issues.
 | Osoba bez pozycji / usunięta osoba | Nieaktywny wybór bez pozycji; po usunięciu wybranej osoby powrót do całej rodziny |
 | Zdalne 15 min, odbiorca udostępnia z wygaszonym ekranem | Najpierw oczekiwanie, potem potwierdzenie i tryb dokładny; po 15 min tryb okresowy |
 | Żądanie do telefonu offline | Oczekiwanie; po powrocie tylko pozostała część 15 min, po wygaśnięciu bez zmiany trybu |
-| Żądanie do zatrzymanej usługi / starej wersji 0.2 | Brak fałszywego potwierdzenia; usługa nie uruchamia się sama |
+| Zdalne wyłącz → zwykłe / dokładne przy schowanej aplikacji | Brak pomiarów i wysyłek podczas pauzy; po nowym poleceniu wznowienie i potwierdzenie telefonu |
+| Zdalne zwykłe udostępnianie w trakcie dokładnego | Natychmiastowe przerwanie dokładnego; starszy tryb nie wraca po reconnect |
+| Każda akcja przy sobie i innej osobie | Te same trzy przyciski; własne akcje działają także bez internetu |
+| Żądanie do całkowicie zatrzymanej usługi / starej wersji | Brak fałszywego potwierdzenia; usługa nie uruchamia się sama; wymagane 0.6.0 na obu telefonach |
 | Odbiorca wybiera tryb okresowy lub Stop | Pomiar dokładny przerwany; stare UUID nie uruchamia go ponownie po reconnect/starcie |
-| Kilku nadawców i powtórne kliknięcie | Niezależne sesje, nowy UUID odnawia 15 min; odbiorca może zakończyć wszystkie |
+| Kilku nadawców i powtórne kliknięcie | Najnowsze polecenie zastępuje poprzednie; nowy UUID dokładnego odnawia 15 min; lokalna zmiana przerywa starsze polecenia |
 | Zanik sieci w trakcie sesji dokładnej | Lokalny zegar kończy sesję; przeterminowany heartbeat nie jest pokazywany jako aktywny |
+| Historia dowolnego członka, dzisiaj / wczoraj | Oddzielna mapa i właściwy dzień; wybór nie zmienia bieżącej mapy rodziny |
+| Suwak czasu, Pokaż całą trasę, jeden punkt / pusty dzień | Właściwa godzina, dokładność i bateria; poprawna kamera albo czytelny brak danych |
+| Przerwa w pomiarach ponad 15 minut | Brak linii łączącej odległe czasowo odcinki |
+| Historia po 30 dniach / pierwszy niepełny dzień / zmiana czasu | Zakres 30 × 24 h, prawidłowe lokalne daty 23/25 h; starsze punkty sprzątane przy aktywnej aplikacji |
+| Usunięcie własnej historii do wczoraj | Potwierdzenie; wskazany dzień włącznie znika na obu telefonach, dzisiaj pozostaje |
+| Usunięcie historii do dzisiaj przy aktywnym udostępnianiu | Dotychczasowe punkty znikają; nowsze są nadal zapisywane; stara ostatnia pozycja nie wraca |
+| Usuwanie innej osoby / inna rodzina | W UI brak akcji; reguły odrzucają zapis granicy usuwania |
+| Usunięcie, potem synchronizacja starej kolejki offline | Usunięte punkty nie wracają; nowe trafiają do historii |
+| Aktualizacja 0.6 → 0.7 z punktami offline | Room zachowuje punkty i nadaje trwałe klucze; ponowienie nie dubluje historii |
+| Brak internetu / stare reguły przy historii | Czytelny błąd i ponowienie; brak fałszywego potwierdzenia kasowania |
 | Cofnięcie członkostwa w konsoli | Kolejne odczyty/zapisy odrzucane; aplikacja sygnalizuje błąd |
 | Force Stop / restart telefonu | Bez cichego wznowienia; ponowny start z ekranu |
 | GPS wyłączony / budynek | Brak świeżego punktu lub gorsza dokładność; widoczny wiek pomiaru |
@@ -59,4 +73,18 @@ Automatyczny test UI na emulatorze z usługami Google Play i kluczem Maps:
 
 Test używa syntetycznych członków i pozycji. Sprawdza kliknięcie osoby, przewinięcie
 do mapy, tryb ręczny, wznowienie i powrót do całej rodziny; nie odczytuje ani nie
-zmienia danych rodzinnych w Firebase.
+zmienia danych rodzinnych w Firebase. Obejmuje też wybór osoby i dnia historii,
+potwierdzenie kasowania i kamerę trasy oraz migrację bazy Room.
+
+Test usługi ze zdalnym wyłączeniem i wznowieniem przy schowanej Activity używa
+osobnych aplikacji Firebase, testowych kont i bazy Room w pamięci. Ten sam skrypt
+sprawdza historię: ponowienie wysyłki bez duplikatów, odczyt innej osoby, kasowanie
+do końca dnia, ochronę przed odtworzeniem offline i stronicowane sprzątanie. Uruchom na
+emulatorze po zbudowaniu APK debug oraz androidTest (JDK 21 dla emulatorów Firebase):
+
+```powershell
+npx firebase emulators:exec --project demo-family-locator --only auth,database "powershell.exe -NoProfile -File scripts/Test-TrackingControl.ps1 -SdkPath C:/Dev/JS/family-locator/.android-sdk"
+```
+
+Standardowe `connectedDebugAndroidTest` pomija ten opt-in test, jeśli nie podano
+argumentu `firebaseEmulators=true`. Test nie zmienia konta ani danych prawdziwej rodziny.

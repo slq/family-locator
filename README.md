@@ -3,19 +3,19 @@
 Prywatna aplikacja Android dla rodziny: Samsung S10, S10 i A54. Kotlin, Compose,
 Fused Location Provider, Room i opcjonalny Firebase Realtime Database.
 
-## Status: prototyp 0.5
+## Status: prototyp 0.7
 
 To pierwszy działający etap, **nie gotowy system zdalnego monitorowania**.
 APK bez konfiguracji działa jako lokalny tester GPS. Nie wymaga konta Firebase
 ani klucza map. Po konfiguracji obsługuje logowanie, wysyłanie ostatniej pozycji
 i podgląd pozycji rodziny. Usługa jest uruchamiana świadomie z ekranu aplikacji.
 
-| Funkcja | Wersja 0.5 |
+| Funkcja | Wersja 0.7 |
 |---|---|
 | Pomiary przy wygaszonym ekranie z widocznym powiadomieniem | Tak; do weryfikacji na telefonach |
 | Tryb okresowy / dokładny | Około 3 min / 10 s; dokładny wygasa lokalnie po 15 min |
 | Natychmiastowe zatrzymanie z ekranu lub powiadomienia | Tak |
-| Lokalny zapis i ograniczona kolejka offline | Room; maks. 1000 punktów i 24 h podczas pracy |
+| Lokalny zapis i ograniczona kolejka offline | Room; maks. 300 000 punktów i 30 dni podczas pracy |
 | Diagnostyka uprawnień, baterii, wieku i dokładności pomiaru | Tak |
 | Logowanie, ostatnie pozycje rodziny | Po konfiguracji Firebase i ręcznym przypisaniu kont |
 | Mapa i obszar dokładności | Po dodaniu klucza Maps SDK; bez Map ID |
@@ -23,9 +23,12 @@ i podgląd pozycji rodziny. Usługa jest uruchamiana świadomie z ekranu aplikac
 | Lista wszystkich członków i wspólne nazwy | Każdy członek rodziny, również osoby bez zapisanej pozycji |
 | Własne ikonki na mapie | 12 symboli do wyboru, kolor i numer członka; wybór synchronizowany z rodziną |
 | Wybór osoby i widok całej rodziny | Dotknięcie osoby przybliża jej pozycję; automatyczne dopasowanie i śledzenie kolejnych pomiarów |
-| Zdalne dokładne pomiary przez 15 min | Tak, przy działającym udostępnianiu; potwierdzenie odbiorcy i automatyczne wygaśnięcie |
+| Tryb udostępniania każdej osoby, także siebie | Zwykły, dokładny przez 15 min lub wyłączony; każdy członek może zmienić tryb każdego telefonu |
+| Zdalne wznowienie po wyłączeniu udostępniania | Tak, gdy sterowanie rodzinne pozostaje włączone z widocznym powiadomieniem; wymagane 0.6.0 i nowe reguły |
 | Automatyczne rozpoznawanie ruchu / tryb 15 min w bezruchu | Następny etap |
-| Zaproszenia QR, historia tras, geofencing | Kolejne etapy |
+| Historia położenia | 30 dni; dowolny członek rodziny i wybrany dzień na osobnej mapie |
+| Usuwanie historii do daty | Własne dane, wskazany dzień włącznie; kolejka offline nie przywraca usuniętych punktów |
+| Zaproszenia QR, geofencing | Kolejne etapy |
 | Automatyczne wznowienie po restarcie / ubiciu procesu | Nie; ponownie uruchom z aplikacji |
 
 `CONCEPT.md` opisuje pełną wizję i alternatywy architektury. Aktualny prototyp
@@ -73,11 +76,18 @@ Pełna instrukcja: [docs/SETUP_FIREBASE.md](docs/SETUP_FIREBASE.md).
 - reguły bazy muszą zostać wdrożone **przed użyciem prawdziwych lokalizacji**.
 
 Punkty zebrane bez logowania mają `ownerUid = null` i nie są później wysyłane.
-Zmiana konta wymaga zatrzymania pomiarów. Wylogowanie usuwa lokalną bazę punktów.
+Zmiana konta wymaga wyłączenia udostępniania i sterowania rodzinnego. Wylogowanie usuwa lokalną bazę punktów.
+Wyłączenie samego udostępniania zatrzymuje pomiary i wysyłki oraz usuwa niewysłaną
+kolejkę, zachowując odbiór poleceń rodziny. Całą usługę wyłącza osobny przycisk
+w aplikacji lub powiadomieniu. Po pełnym zatrzymaniu i restarcie uruchom ją ponownie
+z aplikacji; stare polecenia nie są ponawiane.
 Zatrzymanie wysyłania pozostawia ostatnią pozycję w chmurze z oryginalnym czasem
-pomiaru. Ten prototyp nie implementuje retencji danych na serwerze; administrator
-może usunąć pozycję w konsoli. Lokalny limit czasu jest egzekwowany podczas pracy
-usługi, nie przez zaplanowane kasowanie przy zamkniętej aplikacji.
+pomiaru. Od 0.7.0 historia obejmuje ostatnie 30 dni. Starsze punkty są stopniowo
+usuwane podczas pracy aplikacji dowolnego członka rodziny. Gdy wszystkie telefony
+są wyłączone, fizyczne sprzątanie czeka na ponowne uruchomienie aplikacji.
+Nie ma osobnego serwera ani zaplanowanego zadania w chmurze. Ostatnia pozycja
+na bieżącej mapie pozostaje niezależna od retencji historii; ręczne usunięcie
+historii usuwa również ostatnią pozycję, jeśli mieści się w wybranym zakresie.
 
 ## Testy
 
@@ -91,7 +101,9 @@ Testy reguł korzystają wyłącznie z lokalnego emulatora i projektu
 Sprawdzają m.in. izolację rodzin, podszywanie się pod inną osobę, cofnięcie
 członkostwa, walidację współrzędnych i ochronę przed starszym punktem offline,
 listę członków, wspólne nazwy, autorstwo żądań i potwierdzeń. Testy Kotlin sprawdzają
-także wygaśnięcie zdalnych sesji, brak ponownego wykonania i potwierdzanie stanu.
+także wygaśnięcie zdalnych sesji, brak ponownego wykonania i potwierdzanie stanu,
+30-dniową retencję, zmianę czasu oraz granice usuwania. Testy Android sprawdzają
+migrację Room, wybór historii, kamerę trasy i usuwanie na emulatorze Firebase.
 
 Plan testów na telefonach: [docs/DEVICE_TESTS.md](docs/DEVICE_TESTS.md).
 Podpisywanie i publikacja aktualizacji: [docs/UPDATES.md](docs/UPDATES.md).

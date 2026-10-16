@@ -61,4 +61,11 @@ class MapViewportTest {
         assertEquals(1, mapPoints(FamilySnapshot(), oldLocal.copy(ownerUid = null), null).size)
         assertTrue(mapPoints(snapshot(alice.copy(latitude = Double.NaN)), null, "alice").isEmpty())
     }
+
+    @Test fun `deleted position cannot return through the local fallback`() {
+        val own = FamilyMember("alice", "Alice", null, null, null, null, historyDeletedThrough = oldLocal.measuredAt)
+        val family = FamilySnapshot(listOf(own))
+        assertTrue(mapPoints(family, oldLocal, "alice").isEmpty())
+        assertEquals(1, mapPoints(family, oldLocal.copy(measuredAt = oldLocal.measuredAt + 1), "alice").size)
+    }
 }

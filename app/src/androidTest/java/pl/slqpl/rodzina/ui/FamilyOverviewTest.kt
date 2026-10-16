@@ -16,6 +16,7 @@ import org.junit.Assert.assertFalse
 import com.google.maps.android.compose.CameraPositionState
 import com.google.maps.android.compose.rememberCameraPositionState
 import pl.slqpl.rodzina.cloud.*
+import pl.slqpl.rodzina.location.TrackingMode
 import kotlin.math.abs
 
 /** Synthetic members only: these UI checks neither read nor write the user's Firebase data. */
@@ -30,7 +31,7 @@ class FamilyOverviewTest {
             MaterialTheme {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     FamilyOverview(snapshot, null, "alice", 1_000, null, "", true,
-                        onRename = { _, _ -> }, onRequestLive = {}, onChooseIcon = {})
+                        onRename = { _, _ -> }, onTracking = { _, _ -> }, onChooseIcon = {})
                 }
             }
         }
@@ -86,5 +87,25 @@ class FamilyOverviewTest {
         compose.waitUntil(10_000) { !camera.isMoving && abs(camera.position.target.latitude - 50.02) < 0.00001 }
         compose.onNodeWithText("Pokaż wszystkich").performClick()
         compose.waitUntil(10_000) { !camera.isMoving && camera.position.zoom < 10 }
+    }
+
+    @Test fun allThreeControlsWorkForSelfAndEveryMemberWithoutMovingTheMap() {
+        val actions = mutableListOf<Pair<String, TrackingMode>>()
+        compose.setContent {
+            MaterialTheme {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    FamilyMembersPanel(listOf(member("alice", "Alice", 52.0), member("bob", "Bob", null)),
+                        "alice", 1_000, null, "", onRename = { _, _ -> },
+                        onTracking = { uid, mode -> actions += uid to mode }, onChooseIcon = {},
+                        onShowMember = { error("Changing tracking must not move the map") })
+                }
+            }
+        }
+        for (uid in listOf("alice", "bob")) for (mode in TrackingMode.entries) {
+            compose.onNodeWithTag("tracking-$uid-${mode.wireName}").performScrollTo().performClick()
+        }
+        compose.runOnIdle {
+            assertEquals(listOf("alice", "bob").flatMap { uid -> TrackingMode.entries.map { uid to it } }, actions)
+        }
     }
 }

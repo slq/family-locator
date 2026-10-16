@@ -6,11 +6,13 @@ import kotlinx.coroutines.flow.update
 
 data class TrackingStatus(
     val running: Boolean = false,
-    val mode: TrackingMode = TrackingMode.PERIODIC,
+    val mode: TrackingMode = TrackingMode.STOPPED,
     val remainingSeconds: Long = 0,
     val lastUploadAt: Long? = null,
     val message: String = "Udostępnianie wyłączone",
-)
+) {
+    val sharing get() = running && mode != TrackingMode.STOPPED
+}
 
 class TrackingState {
     private val mutable = MutableStateFlow(TrackingStatus())

@@ -21,7 +21,8 @@ data class FamilyMapView(val memberUid: String? = null, val following: Boolean =
 /** Family coordinates take precedence over an old local cache, which must not widen family bounds. */
 fun mapPoints(snapshot: FamilySnapshot, local: LocationSample?, currentUid: String?): List<MapPoint> {
     val family = snapshot.positions.map { MapPoint(it.uid, it.latitude, it.longitude) }
-    val points = if (family.isNotEmpty()) family else local?.takeIf { it.ownerUid == currentUid }?.let {
+    val deletedThrough = snapshot.members.firstOrNull { it.uid == currentUid }?.historyDeletedThrough ?: 0
+    val points = if (family.isNotEmpty()) family else local?.takeIf { it.ownerUid == currentUid && it.measuredAt > deletedThrough }?.let {
         listOf(MapPoint(currentUid ?: "local", it.latitude, it.longitude))
     }.orEmpty()
     return points.filter { it.latitude.isFinite() && it.latitude in -90.0..90.0 &&

@@ -4,9 +4,9 @@
 
 UI uruchamia `LocationSharingService` z widocznej Activity. Usługa tworzy powiadomienie
 z akcją Stop i prosi Fused Location Provider o pomiary. Room zapisuje każdy przyjęty
-punkt. Dla zalogowanego użytkownika synchronizator wysyła najnowszy oczekujący punkt
-do Realtime Database. UI subskrybuje listę członków i dane rodziny tylko, gdy jest aktywne.
-Podczas udostępniania usługa osobno nasłuchuje żądań dokładnych pomiarów w RTDB.
+punkt. Dla zalogowanego użytkownika synchronizator wysyła najnowszy punkt
+do bieżącej mapy oraz wszystkie oczekujące punkty w partiach do historii RTDB. UI subskrybuje listę członków i dane rodziny tylko, gdy jest aktywne.
+Podczas pracy usługa nasłuchuje poleceń zmiany trybu w RTDB, także przy wyłączonym udostępnianiu.
 
 Nie deklarujemy `ACCESS_BACKGROUND_LOCATION`: ta wersja zaczyna usługę wyłącznie
 z widocznej Activity. Usługa może potem kontynuować przy wygaszonym ekranie.
@@ -26,9 +26,13 @@ Nie ma receivera BOOT_COMPLETED ani mechanizmu obchodzącego Force Stop.
 
 ## Kolejka i prywatność
 
-Room zachowuje do 1000 punktów; podczas pracy usuwa punkty starsze niż 24 h.
-W MVP synchronizujemy **ostatnią pozycję**, a nie historię. Po potwierdzeniu najnowszej
-pozycji wcześniejsze oczekujące punkty tego użytkownika uznajemy za obsłużone.
+Room zachowuje do 300 000 punktów; podczas pracy usuwa punkty starsze niż 30 dni.
+Synchronizujemy najnowszą pozycję osobno oraz historię partiami po 200 punktów,
+od najstarszych ID. Dopiero potwierdzenie historii uznaje daną partię za obsłużoną.
+Ostatnia pozycja przyjmuje pomiary do 24 h; starsze punkty nadal trafiają do historii.
+UUID punktu jest zapisany w Room, więc ponowienie nie tworzy duplikatu. Migracja
+Room 1 → 2 nadaje trwałe klucze istniejącym rekordom bez utraty kolejki. Kolejka
+przetrwa awarię procesu; jawne wyłączenie oznacza jej odrzucenie także po restarcie.
 Zapis otrzymuje ownerUid w chwili pomiaru. Punkty lokalne nigdy nie przechodzą do chmury.
 Synchronizacja sprawdza, czy UID nadal zgadza się z kontem; logowanie/wylogowanie
 jest niedostępne podczas pracy usługi. Po zatrzymaniu anulujemy zapisy oczekujące SDK.
@@ -41,46 +45,58 @@ pozycję przed nadpisaniem starszym pomiarem; reguły egzekwują to niezależnie
 `receivedAt` jest timestampem serwera, `measuredAt` czasem pomiaru telefonu.
 Nie oferujemy ochrony przed właścicielem telefonu fałszującym własną lokalizację.
 
-## Lista członków i zdalne pomiary od 0.3.0
+## Lista członków i sterowanie od 0.6.0
 
-Każdy członek może zmieniać wspólne nazwy i wysłać żądanie dokładnych pomiarów.
-Roster pochodzi z `memberships`, z indeksowanego zapytania `orderByChild("familyId")`
-ograniczonego do własnej rodziny przez `equalTo`. Reguły nie pozwalają pobrać całego
-katalogu ani przeglądać innych rodzin. Lista obejmuje konta bez pozycji i pomija
-stare pozycje usuniętych członków. Przypisania kont nadal zmienia tylko administrator.
+Każdy obecny członek rodziny może zmieniać wspólne nazwy i wybierać dla dowolnej
+osoby (także siebie) tryb `periodic`, `live` albo `stopped`. Roster nadal pochodzi
+z indeksowanego zapytania `memberships.orderByChild("familyId").equalTo(ownFamily)`.
+Obejmuje osoby bez pozycji, pomija pozycje usuniętych członków i nie ujawnia innych rodzin.
 
-W `families/{familyId}` członkowie czytają wspólne dane:
-
-| Ścieżka | Zapis |
+| Ścieżka w `families/{familyId}` | Zapis |
 |---|---|
-| `memberNames/{uid}` | Dowolny obecny członek; nazwa 1–40 znaków, ma pierwszeństwo przed etykietą GPS |
-| `memberIcons/{uid}` | Wyłącznie właściciel; jeden z 12 identyfikatorów lub usunięcie własnego wyboru |
-| `locations/{uid}` | Wyłącznie właściciel pozycji; dotychczasowa walidacja |
-| `devices/{uid}` | Wyłącznie właściciel: tryb, stan udostępniania, heartbeat serwera i koniec trybu dokładnego |
-| `liveRequests/{targetUid}/{requesterUid}` | Wyłącznie nadawca we własnym slocie, obie osoby w tej samej rodzinie |
-| `liveAcks/{targetUid}/{requesterUid}` | Wyłącznie odbiorca, identyfikator aktualnego żądania i jego wyliczony koniec |
+| `memberNames/{uid}` | Dowolny obecny członek; wspólna nazwa 1–40 znaków |
+| `memberIcons/{uid}` | Wyłącznie właściciel; jeden z 12 symboli albo usunięcie wyboru |
+| `locations/{uid}` | Wyłącznie właściciel; walidacja pomiaru i czasu |
+| `devices/{uid}` | Wyłącznie właściciel; sharing, mode, controlReady, heartbeat i liveUntil |
+| `trackingRequests/{targetUid}` | Dowolny obecny członek tej samej rodziny; UUID, własny requesterUid, mode i czas serwera |
+| `trackingAcks/{targetUid}` | Wyłącznie odbiorca; UUID i tryb aktualnego żądania oraz czas odpowiedzi serwera |
 
-Żądanie zawiera UUID i `requestedAt` nadany przez serwer. Wygasa dokładnie 15 minut
-po tym czasie. Opóźniony odbiór wykorzystuje pozostały czas. Odbiorca przelicza go raz
-na zegar monotoniczny; reconnect i zmiana zegara nie odnawiają sesji. Nowe kliknięcie
-tworzy nowy UUID. Każdy nadawca ma niezależną sesję, a najpóźniejszy koniec decyduje
-o trybie. Osobna lokalna sesja dokładna nie jest skracana przez usunięcie żądania.
-Odbiorca filtruje nadawców przez bieżące członkostwo.
+Jedna ścieżka polecenia na telefon oznacza, że ostatni zapis serwera zastępuje poprzednie
+polecenia od wszystkich nadawców. Polecenie czeka na odbiór maksymalnie 15 min.
+Tryb dokładny kończy się 15 min od wysłania; opóźniony odbiór wykorzystuje tylko pozostały
+czas. Po przyjęciu tryby zwykły i wyłączony pozostają aktywne do kolejnej zmiany.
+Tryb dokładny zawsze wraca do zwykłego udostępniania, również po włączeniu z pauzy.
+Monotoniczny zegar kończy sesję bez internetu i nie odnawia jej po reconnect.
 
-Usługa zapisuje wykorzystane UUID lokalnie. Powrót do trybu okresowego, Stop i ponowny
-start nie wykonują ponownie tego samego żądania. Stop ma pierwszeństwo i zatrzymuje
-nasłuchiwanie. Żądanie wysłane do zatrzymanego telefonu może zostać przyjęte dopiero
-po świadomym uruchomieniu udostępniania, o ile jeszcze nie wygasło.
+Lokalny przycisk działa również bez internetu. Nowsza lokalna zmiana ma pierwszeństwo
+przed starszym poleceniem serwera. Nowa usługa ignoruje polecenia wysłane przed jej
+uruchomieniem. Wykorzystane UUID i granica lokalnej zmiany chronią przed ponownym
+wykonaniem. Usunięcie autora z rosteru kończy jego aktywne zdalne sterowanie.
 
-Potwierdzenie odbiorcy dotyczy zmiany trybu, nie uzyskania nowego fixa GPS. UI wymaga
-zgodnego UUID potwierdzenia i świeżego aktywnego urządzenia, a wiek oraz dokładność
-pozycji pokazuje osobno. Heartbeat jest wysyłany co około 30 s; po 90 s staje się
-nieaktualny. `onDisconnect` ustawia urządzenie jako zatrzymane; Stop także wysyła taki
-stan. Niedostępne urządzenie nie jest pokazywane jako aktywny tryb dokładny.
+`stopped` usuwa żądanie lokalizacji z Fused Location Provider, anuluje zadania pomiarów
+oraz wysyłki, wycofuje oczekujące zapisy SDK i usuwa niewysłane punkty właściciela
+z kolejki Room. Nie usuwa wcześniej potwierdzonej pozycji z serwera. Odbiór poleceń
+pozostaje w działającej usłudze pierwszoplanowej z powiadomieniem opisującym pauzę.
+To pozwala rodzinie wznowić pomiary przy schowanej aplikacji, bez zimnego startu
+usługi lokalizacji z tła. Osobny przycisk **Wyłącz udostępnianie i sterowanie rodzinne**
+oraz akcja powiadomienia wyłączają całą usługę. Force Stop i restart też ją kończą.
 
-Ta wersja nie wymaga FCM, Functions ani zmiany planu Firebase. Realtime listener działa
-w już uruchomionej usłudze, również przy wygaszonym ekranie. Zimny start usługi z tła
-wymaga osobnej obsługi ograniczeń Androida; nie ma wybudzania po Force Stop.
+Potwierdzenie wysyłamy po pomyślnej rejestracji albo usunięciu żądania pomiarów.
+Potwierdza zmianę trybu, a nie uzyskanie nowej pozycji GPS. Stan urządzenia i ack są
+zapisywane atomowo. Heartbeat co około 30 s, świeżość 90 s i `controlReady` rozróżniają
+pauzę z możliwością zdalnego wznowienia od niedostępnego telefonu. `onDisconnect`
+wyłącza oba stany. Lista wymaga zgodnego UUID i trybu; osobno pokazuje wygasłe,
+oczekujące, zakończone i zmienione polecenia oraz nieaktualne potwierdzenia.
+
+Sterowanie wymaga wersji co najmniej 0.6.0 na obu telefonach i aktualnych reguł RTDB.
+Reguły `liveRequests`/`liveAcks` pozostają dla zgodności między starszymi klientami;
+0.6.0 korzysta wyłącznie z `trackingRequests`/`trackingAcks`. Nie potrzeba FCM,
+Functions ani zmiany planu Firebase. Po pełnym zatrzymaniu trzeba uruchomić
+sterowanie świadomie z ekranu aplikacji.
+
+Źródła ograniczeń Androida:
+- https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start
+- https://developer.android.com/develop/sensors-and-location/location/permissions
 
 ## Ikony członków od 0.4.0
 
@@ -119,8 +135,42 @@ Wznowienie i **Pokaż wszystkich** od razu ustawiają kamerę ponownie. Stary lo
 pomiar nie powiększa granic rodziny; stanowi fallback tylko przy braku pozycji
 rodzinnych i zgodności ownerUid z bieżącą sesją. Wybór mapy nie zmienia pomiarów GPS.
 
+## Historia od 0.7.0
+
+`FamilyHistory` zapisuje `history/{familyId}/{uid}/{pointKey}` poza `families`,
+aby istniejący listener bieżącej mapy nie pobierał tras. Punkt zawiera współrzędne,
+dokładność, baterię, całkowity `measuredAt` w ms i serwerowy `receivedAt`. Ponowienie
+może odświeżyć tylko czas odbioru; zmiana treści istniejącego punktu jest odrzucana.
+`historyOwners/{uid}` w rodzinie pozwala sprzątać dane również po odejściu osoby.
+
+Widok subskrybuje indeks `measuredAt` jednej osoby i jednego dnia kalendarzowego,
+z limitem 10 000 punktów. Granice dnia uwzględniają strefę i zmianę czasu 23/25 h.
+Połowy milisekundy w granicach zapytania zachowują włączenie całkowitych timestampów
+i typ double również w emulatorze RTDB. Zakres ogranicza retencja i granica usunięcia.
+Zmiana sesji, rosteru albo dnia zamyka poprzednią subskrypcję i czyści stan widoku.
+Trasa łączy pomiary, nie rekonstruuje przebiegu po drogach; luki ponad 15 min
+rozpoczynają nowy odcinek. Osobna mapa nie zmienia ustawień widoku bieżącej rodziny.
+
+Właściciel usuwa własne dane: transakcja najpierw podnosi monotoniczny
+`families/{familyId}/historyDeletedThrough/{uid}`, potem kasuje punkty partiami po
+1000 i transakcyjnie usuwa ostatnią pozycję, jeśli jej czas mieści się w zakresie.
+Równoległy nowszy pomiar przeżywa usuwanie. Reguły blokują stare zapisy także do
+`locations`, a Room usuwa skasowane próbki przy synchronizacji i po udanym kasowaniu.
+Data obejmuje wskazany lokalny dzień włącznie, a dzisiaj tylko czas do wykonania.
+Po błędzie użytkownik może ponowić kasowanie; granica nadal blokuje przywrócenie.
+Członkowie rodziny widzą trasy innych obecnych członków, ale nie mogą przesuwać
+ich granicy usunięcia. Mogą dokończyć kasowanie punktów już objętych granicą.
+
+Retencja wynosi 30 × 24 h. Klient odrzuca stare próbki, zawęża widok i wykonuje
+ograniczone sprzątanie (maks. 5 × 1000 punktów na właściciela w jednym przebiegu)
+przy otwarciu aplikacji/historii oraz co godzinę działania usługi. Nie ma zdalnego
+harmonogramu: fizyczne usuwanie przy wszystkich wyłączonych aplikacjach jest
+odroczone do ich ponownej aktywności. Reguły dopuszczają odczyt wygasłych partii
+wyłącznie w ograniczonych zapytaniach przeznaczonych do sprzątania. Bieżąca ostatnia
+pozycja jest niezależna od retencji historii, ale respektuje ręczną granicę usunięcia.
+
 ## Dalsze etapy
 
-Zaproszenia z krótkim TTL, zarządzanie urządzeniami, automatyczna retencja serwera,
+Zaproszenia z krótkim TTL, zarządzanie urządzeniami, retencja serwera niezależna od aktywności telefonów,
 detekcja ruchu i geofencing. Od 0.2.0 dostępne są stabilne podpisywanie release
 i ręcznie uruchamiane aktualizacje z GitHub Releases; szczegóły w `UPDATES.md`.

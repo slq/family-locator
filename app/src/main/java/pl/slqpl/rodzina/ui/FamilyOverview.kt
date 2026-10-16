@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import pl.slqpl.rodzina.cloud.FamilyIcon
 import pl.slqpl.rodzina.cloud.FamilySnapshot
 import pl.slqpl.rodzina.data.LocationSample
+import pl.slqpl.rodzina.location.TrackingMode
 
 private val mapViewSaver = listSaver<FamilyMapView, Any>(
     save = { listOf(it.memberUid.orEmpty(), it.following, it.requestId) },
@@ -23,7 +24,9 @@ private val mapViewSaver = listSaver<FamilyMapView, Any>(
 fun FamilyOverview(
     snapshot: FamilySnapshot, local: LocationSample?, currentUid: String?, now: Long,
     busyUid: String?, message: String, mapsAvailable: Boolean,
-    onRename: (String, String) -> Unit, onRequestLive: (String) -> Unit, onChooseIcon: (FamilyIcon?) -> Unit,
+    onRename: (String, String) -> Unit, onTracking: (String, TrackingMode) -> Unit, onChooseIcon: (FamilyIcon?) -> Unit,
+    ownMode: TrackingMode? = null,
+    onShowHistory: (String) -> Unit = {},
 ) {
     var view by rememberSaveable(currentUid, stateSaver = mapViewSaver) { mutableStateOf(FamilyMapView()) }
     val mapRequester = remember { BringIntoViewRequester() }
@@ -35,9 +38,11 @@ fun FamilyOverview(
     }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (currentUid != null) FamilyMembersPanel(
-            snapshot.members, currentUid, now, busyUid, message, onRename, onRequestLive, onChooseIcon,
+            snapshot.members, currentUid, now, busyUid, message, onRename, onTracking, onChooseIcon,
             selectedUid = view.memberUid, mapsAvailable = mapsAvailable,
             onShowMember = { uid -> view = view.focus(uid); scrollRequest++ },
+            ownMode = ownMode,
+            onShowHistory = onShowHistory,
         )
         if (mapsAvailable) key(currentUid) {
             FamilyMap(snapshot, local, currentUid, now, view,

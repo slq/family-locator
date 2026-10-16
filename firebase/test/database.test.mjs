@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { after, before, beforeEach, test } from 'node:test';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { ref, get, set, query, orderByChild, equalTo, onDisconnect, goOffline, serverTimestamp } from 'firebase/database';
+import { ref, get, set, query, orderByChild, equalTo, onDisconnect, goOffline, serverTimestamp, startAt, endAt, limitToFirst } from 'firebase/database';
 import assert from 'node:assert/strict';
 
 // The Node database SDK forwards WebSockets through HTTP_PROXY even for loopback.
@@ -213,4 +213,170 @@ test('icon selection rejects malformed values and revoked owners', async () => {
   await env.withSecurityRulesDisabled(context => set(ref(context.database(), 'memberships/alice'), null));
   await assertFails(set(ref(database('alice'), path), 'dog'));
   await assertFails(set(ref(database('alice'), path), null));
+});
+
+const trackingPath = 'families/family-a/trackingRequests/bob';
+const trackingAckPath = 'families/family-a/trackingAcks/bob';
+let trackingSerial = 0;
+const trackingCommand = (mode, extra = {}) => ({
+  id: String(++trackingSerial).padStart(36, '0'), requesterUid: 'alice', mode, requestedAt: serverTimestamp(), ...extra,
+});
+const trackingAck = request => ({ requestId: request.id, mode: request.mode, respondedAt: serverTimestamp() });
+
+test('every member may select each tracking mode for themselves and another member', async () => {
+  const db = database('alice');
+  for (const mode of ['periodic', 'live', 'stopped']) {
+    await assertSucceeds(set(ref(db, trackingPath), trackingCommand(mode)));
+    await assertSucceeds(set(ref(db, 'families/family-a/trackingRequests/alice'), trackingCommand(mode)));
+  }
+});
+
+test('tracking commands reject outsiders spoofed authors invalid targets and malformed payloads', async () => {
+  await assertFails(set(ref(database(), trackingPath), trackingCommand('stopped')));
+  await assertFails(set(ref(database('eve'), trackingPath), trackingCommand('stopped', { requesterUid: 'eve' })));
+  const db = database('alice');
+  for (const invalid of [trackingCommand('other'), trackingCommand('live', { requesterUid: 'bob' }),
+    trackingCommand('live', { requestedAt: 1 }), trackingCommand('live', { extra: true }),
+    trackingCommand('live', { id: 'short' }), { mode: 'stopped' }]) {
+    await assertFails(set(ref(db, trackingPath), invalid));
+  }
+  await assertFails(set(ref(db, 'families/family-a/trackingRequests/eve'), trackingCommand('live')));
+  await assertFails(set(ref(db, 'families/family-a/trackingRequests/missing'), trackingCommand('live')));
+});
+
+test('the newest command replaces earlier senders and only its target may confirm its exact mode', async () => {
+  const first = trackingCommand('live');
+  await assertSucceeds(set(ref(database('alice'), trackingPath), first));
+  await assertSucceeds(set(ref(database('bob'), trackingAckPath), trackingAck(first)));
+  const second = trackingCommand('stopped', { requesterUid: 'bob' });
+  await assertSucceeds(set(ref(database('bob'), trackingPath), second));
+  await assertFails(set(ref(database('bob'), trackingAckPath), trackingAck(first)));
+  await assertFails(set(ref(database('alice'), trackingAckPath), trackingAck(second)));
+  await assertFails(set(ref(database('bob'), trackingAckPath), { ...trackingAck(second), mode: 'live' }));
+  await assertSucceeds(set(ref(database('bob'), trackingAckPath), trackingAck(second)));
+  assert.equal((await get(ref(database('alice'), trackingPath))).val().id, second.id);
+});
+
+test('paused sharing keeps control presence and a complete disconnect disables both', async () => {
+  const path = ref(database('bob'), 'families/family-a/devices/bob');
+  await assertSucceeds(set(path, device({ sharing: false, mode: 'stopped', controlReady: true })));
+  await assertSucceeds(onDisconnect(path).set(device({ sharing: false, mode: 'stopped', controlReady: false })));
+  await assertFails(set(path, device({ controlReady: 'yes' })));
+  await assertFails(set(ref(database('alice'), 'families/family-a/devices/bob'), device({ controlReady: true })));
+});
+
+test('revoked command authors cannot leave an executable confirmed command', async () => {
+  const request = trackingCommand('periodic');
+  await assertSucceeds(set(ref(database('alice'), trackingPath), request));
+  await env.withSecurityRulesDisabled(context => set(ref(context.database(), 'memberships/alice'), null));
+  await assertFails(set(ref(database('bob'), trackingAckPath), trackingAck(request)));
+  await assertFails(set(ref(database('alice'), trackingPath), trackingCommand('live')));
+});
+
+test('expired commands and forged confirmations are rejected', async () => {
+  const request = trackingCommand('live', { requestedAt: Date.now() - 900001 });
+  await env.withSecurityRulesDisabled(context => set(ref(context.database(), trackingPath), request));
+  await assertFails(set(ref(database('bob'), trackingAckPath), trackingAck(request)));
+  const fresh = trackingCommand('periodic');
+  await assertSucceeds(set(ref(database('alice'), trackingPath), fresh));
+  await assertFails(set(ref(database('bob'), trackingAckPath), { ...trackingAck(fresh), respondedAt: 1 }));
+  await assertFails(set(ref(database('bob'), trackingAckPath), { ...trackingAck(fresh), extra: true }));
+  await assertFails(set(ref(database('alice'), trackingPath), null));
+});
+
+// History is a separate, indexed tree, never a child of the live family snapshot.
+const historyPath = uid => `history/family-a/${uid}`;
+const boundaryPath = uid => `families/family-a/historyDeletedThrough/${uid}`;
+const historyPoint = (measuredAt = Date.now(), extra = {}) => ({ latitude: 52.23, longitude: 21.01,
+  accuracyMeters: 20, batteryPercent: 75, measuredAt, receivedAt: serverTimestamp(), ...extra });
+const historyQuery = (db, uid, first, last, limit = 10000) => query(ref(db, historyPath(uid)),
+  orderByChild('measuredAt'), startAt(first - 0.5), endAt(last + 0.5), limitToFirst(limit));
+const cleanupQuery = (db, uid, through) => query(ref(db, historyPath(uid)),
+  orderByChild('measuredAt'), endAt(through + 0.5), limitToFirst(1000));
+
+test('history upload is owner-only, idempotent and immutable, with no unrestricted family download', async () => {
+  const now = Date.now();
+  const db = database('bob');
+  const path = ref(db, `${historyPath('bob')}/stable-id`);
+  await assertSucceeds(set(path, historyPoint(now)));
+  await assertSucceeds(set(path, historyPoint(now)));
+  await assertFails(set(path, historyPoint(now, { latitude: 40 })));
+  await assertFails(set(ref(database('alice'), `${historyPath('bob')}/spoofed`), historyPoint(now)));
+  await assertFails(set(ref(database('eve'), `${historyPath('eve')}/foreign-family`), historyPoint(now)));
+  await assertFails(set(ref(database(), `${historyPath('bob')}/anonymous`), historyPoint(now)));
+  const result = await assertSucceeds(get(historyQuery(database('alice'), 'bob', now - 1000, now + 1000)));
+  assert.equal(result.size, 1);
+  await assertFails(get(ref(database('alice'), 'history')));
+  await assertFails(get(ref(database('alice'), 'history/family-a')));
+  await assertFails(get(ref(database('alice'), historyPath('bob'))));
+  await assertFails(get(historyQuery(database('eve'), 'bob', now - 1000, now + 1000)));
+});
+
+test('history reads require a bounded single day and point limit', async () => {
+  const now = Date.now(); const db = database('alice');
+  await assertSucceeds(get(historyQuery(db, 'bob', now - 86400000, now, 10000)));
+  await assertFails(get(historyQuery(db, 'bob', now - 2 * 86400000, now, 10000)));
+  await assertFails(get(historyQuery(db, 'bob', now - 1000, now, 10001)));
+  await assertFails(get(query(ref(db, historyPath('bob')), orderByChild('measuredAt'), startAt(now - 1000), endAt(now))));
+  await assertFails(get(query(ref(db, historyPath('bob')), orderByChild('measuredAt'), startAt(now - 1000), limitToFirst(10000))));
+});
+
+test('history rejects expired future malformed and forged timestamps', async () => {
+  const db = database('bob'); const now = Date.now();
+  for (const invalid of [historyPoint(now - 30 * 86400000 - 10000), historyPoint(now + 120000),
+    historyPoint(now, { latitude: 91 }), historyPoint(now, { longitude: -181 }), historyPoint(now, { accuracyMeters: 0 }),
+    historyPoint(now, { batteryPercent: 101 }), historyPoint(now, { receivedAt: 1 }), historyPoint(now, { unexpected: 1 }),
+    { latitude: 52 }, historyPoint(now, { measuredAt: 'today' }), historyPoint(now + 0.5)]) {
+    await assertFails(set(ref(db, `${historyPath('bob')}/invalid`), invalid));
+  }
+});
+
+test('deletion watermark is owner-only, monotonic and prevents resurrection even from old clients', async () => {
+  const now = Date.now(); const db = database('bob');
+  await assertSucceeds(set(ref(db, `${historyPath('bob')}/old`), historyPoint(now - 5000)));
+  await assertSucceeds(set(ref(db, 'families/family-a/locations/bob'), point({ measuredAt: now - 5000 })));
+  await assertFails(set(ref(database('alice'), boundaryPath('bob')), now));
+  await assertFails(set(ref(database('eve'), boundaryPath('bob')), now));
+  await assertFails(set(ref(db, `${historyPath('bob')}/old`), null));
+  await assertSucceeds(set(ref(db, boundaryPath('bob')), now - 1000));
+  await assertFails(set(ref(db, boundaryPath('bob')), now - 2000));
+  await assertFails(set(ref(db, boundaryPath('bob')), now + 120000));
+  await assertFails(set(ref(db, boundaryPath('bob')), now + 0.5));
+  await assertFails(set(ref(db, boundaryPath('bob')), null));
+  await assertSucceeds(set(ref(db, `${historyPath('bob')}/old`), null));
+  await assertSucceeds(set(ref(db, 'families/family-a/locations/bob'), null));
+  await assertFails(set(ref(db, `${historyPath('bob')}/old-retry`), historyPoint(now - 5000)));
+  await assertFails(set(ref(db, 'families/family-a/locations/bob'), point({ measuredAt: now - 5000 })));
+  await assertSucceeds(set(ref(db, `${historyPath('bob')}/new`), historyPoint(now)));
+  await assertSucceeds(set(ref(db, 'families/family-a/locations/bob'), point({ measuredAt: now })));
+  await assertFails(set(ref(db, 'families/family-a/locations/bob'), null));
+  await assertFails(get(historyQuery(database('alice'), 'bob', now - 10000, now + 1000)));
+  assert.equal((await assertSucceeds(get(historyQuery(database('alice'), 'bob', now, now + 1000)))).size, 1);
+});
+
+test('bounded cleanup removes expired history for inactive and departed members without deleting recent points', async () => {
+  const now = Date.now(); const expired = now - 31 * 86400000;
+  await env.withSecurityRulesDisabled(async context => {
+    await set(ref(context.database(), `${historyPath('gone')}/expired`), historyPoint(expired));
+    await set(ref(context.database(), `${historyPath('gone')}/recent`), historyPoint(now));
+    await set(ref(context.database(), 'families/family-a/historyOwners/gone'), true);
+  });
+  const db = database('alice');
+  const page = await assertSucceeds(get(cleanupQuery(db, 'gone', now - 30 * 86400000 - 2000)));
+  assert.equal(page.size, 1);
+  await assertSucceeds(set(ref(db, `${historyPath('gone')}/expired`), null));
+  await assertFails(set(ref(db, `${historyPath('gone')}/recent`), null));
+  await assertFails(get(historyQuery(db, 'gone', now - 1000, now + 1000)));
+  await assertFails(set(ref(db, 'families/family-a/historyOwners/bob'), true));
+  await assertSucceeds(set(ref(database('bob'), 'families/family-a/historyOwners/bob'), true));
+});
+
+test('revoking membership blocks history reads writes and deletion requests', async () => {
+  const now = Date.now(); const db = database('bob');
+  await assertSucceeds(set(ref(db, `${historyPath('bob')}/point`), historyPoint(now)));
+  await env.withSecurityRulesDisabled(context => set(ref(context.database(), 'memberships/bob'), null));
+  await assertFails(get(historyQuery(db, 'bob', now - 1000, now + 1000)));
+  await assertFails(get(historyQuery(database('alice'), 'bob', now - 1000, now + 1000)));
+  await assertFails(set(ref(db, `${historyPath('bob')}/another`), historyPoint(now)));
+  await assertFails(set(ref(db, boundaryPath('bob')), now));
 });

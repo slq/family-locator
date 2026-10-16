@@ -35,10 +35,13 @@ npx firebase login
 npx firebase deploy --only database --project TWOJ_PROJECT_ID
 ```
 
-**Przy aktualizacji do 0.4.0 ponownie wdroż aktualne reguły przed instalacją APK.** Zawierają
+**Przy aktualizacji do 0.7.0 ponownie wklej aktualne reguły w Realtime Database → Rules i kliknij Publish przed instalacją APK.** Zawierają
 indeks `familyId`, odczyt listy własnej rodziny oraz walidację nazw, żądań i potwierdzeń.
-Od 0.4.0 zezwalają również na zapis własnej ikonki w `memberIcons/{uid}`.
-Dotychczasowe przypisania `memberships` i pozycje pozostają zgodne; migracja nie jest potrzebna.
+Od 0.4.0 zezwalają również na zapis własnej ikonki w `memberIcons/{uid}`. Od 0.6.0 obsługują `trackingRequests`, `trackingAcks` i `devices/{uid}/controlReady`.
+Od 0.7.0 dodają indeksowaną historię `history/{familyId}/{uid}`,
+`historyOwners` oraz granicę usuwania `historyDeletedThrough`. Dotychczasowe
+przypisania `memberships` i pozycje pozostają zgodne; nie importuj bazy od nowa.
+Lokalna baza Room aktualizuje się automatycznie z zachowaniem kolejki.
 
 Zalogowanie CLI odbywa się na Twoim komputerze. Nie przekazuj tokena logowania
 ani pliku konta serwisowego w czacie i nie umieszczaj ich w repozytorium.
@@ -86,7 +89,7 @@ Alert budżetu nie jest twardym limitem wydatków. Włącz tylko używane API.
 
 ## 5. Test dwóch telefonów
 
-Zainstaluj ten sam skonfigurowany APK 0.4.0 na obu telefonach, zaloguj osobne konta, ustaw nazwy osób
+Zainstaluj ten sam skonfigurowany APK 0.7.0 na obu telefonach, zaloguj osobne konta, ustaw nazwy osób
 i uruchom udostępnianie. Bez klucza map zobaczysz listę pozycji, wiek pomiarów
 i baterię. Z kluczem mapa pokaże też znaczniki i obszary dokładności.
 
@@ -113,14 +116,73 @@ dopasowanie** albo ponownie osobę / **Pokaż wszystkich**, aby przywrócić aut
 widok. Sam wybór osoby na mapie nie wysyła żądania dokładnych pomiarów.
 Sterowanie mapą w 0.5.0 korzysta z reguł RTDB z wersji 0.4.0.
 
-Na telefonie odbierającym włącz **Udostępniaj rodzinie**. Na drugim telefonie wybierz
-przy tej osobie **Dokładne pomiary przez 15 minut**. Najpierw zobaczysz oczekiwanie,
-potem potwierdzenie zmiany trybu przez odbiorcę. Usługa żąda pomiarów co około 10 s;
-faktyczna częstotliwość i dokładność zależą od GPS oraz systemu.
+Przy każdej osobie, także przy własnym koncie, są trzy akcje:
 
-Żądanie wygasa 15 min od wysłania, również jeśli odbiorca jest offline. Nie włącza
-zatrzymanego udostępniania i nie wybudza po Force Stop. Odbiorca może przerwać
-tryb dokładny albo zatrzymać pomiary. Telefony z wersją 0.2.0 nie obsługują tych żądań.
+1. **Udostępnianie położenia** — zwykłe pomiary co około 3 minuty.
+2. **Dokładne pomiary przez 15 min** — żądanie dokładnej pozycji co około 10 sekund,
+   następnie powrót do zwykłego udostępniania.
+3. **Wyłączenie udostępniania** — bez nowych pomiarów i wysyłek. Ostatnia zapisana
+   pozycja pozostaje na mapie z czasem jej pomiaru.
+
+Na telefonie odbierającym najpierw uruchom udostępnianie albo wybierz **Włącz sterowanie
+rodzinne bez pomiarów**. Nadaj dokładną lokalizację i powiadomienia. Usługa pozostawia
+widoczne powiadomienie także przy wyłączonym udostępnianiu, aby rodzina mogła zdalnie
+wznowić pomiary. Lista pokaże pauzę i możliwość zdalnego włączenia.
+
+Na drugim telefonie wybierz dowolną z trzech akcji przy tej osobie. Polecenie najpierw
+oczekuje, a następnie otrzymuje potwierdzenie odbiorcy. Wymaga internetu; czeka
+maksymalnie 15 minut. Tryb dokładny kończy się 15 min od wysłania, więc po opóźnionym
+odbiorze działa tylko przez pozostały czas. Częstotliwość i dokładność zależą od GPS
+oraz systemu. Zwykły tryb i pauza po potwierdzeniu nie wygasają.
+
+Każdy członek może zmienić tryb każdego telefonu. Obowiązuje ostatnie polecenie;
+nowsza zmiana lokalna także przerywa poprzednią. Przyciski przy własnym koncie
+działają lokalnie, również bez internetu. Sprawdź zdalne **wyłącz → włącz** przy
+schowanej aplikacji, a także przerwanie trybu dokładnego i wygaszenie po 15 min.
+
+**Wyłącz udostępnianie i sterowanie rodzinne** albo **Wyłącz też sterowanie**
+w powiadomieniu kończy całą usługę. Po tym, po restarcie lub Force Stop trzeba
+uruchomić ją z aplikacji; wcześniejsze polecenia nie włączą jej ponownie.
+Zdalne trzy tryby wymagają wersji 0.6.0 na każdym telefonie. Starsze wersje korzystają
+z poprzednich żądań i nie współpracują z nowym sterowaniem.
+
+## 6. Historia od 0.7.0
+
+Po opublikowaniu aktualnych reguł i zainstalowaniu APK 0.7.0 na każdym telefonie
+historia zaczyna powstawać podczas udostępniania. Wcześniejszych tras nie da się
+odtworzyć z samej ostatniej pozycji; zachowane lokalnie, niewysłane punkty mogą
+zostać dosłane po odzyskaniu internetu. Wyłączenie udostępniania zatrzymuje również
+zbieranie historii i usuwa niewysłaną kolejkę.
+
+Przy dowolnej osobie wybierz **Historia na mapie** albo przejdź do panelu
+**Historia położenia**, wybierz osobę i dzień, a następnie **Pokaż historię na mapie**.
+Każdy członek rodziny może przeglądać historię pozostałych. Mapa pokazuje początek,
+koniec oraz linię między pomiarami; suwakiem wybierzesz konkretną godzinę i punkt.
+**Pokaż całą trasę** przywraca dopasowanie mapy. Przerwy ponad 15 minut nie są
+łączone linią. Daty i godziny odnoszą się do strefy telefonu przeglądającego dane.
+Zakres to ruchome 30 dni, więc pierwszy dostępny dzień może być niepełny.
+
+Wybierając siebie, użyj **Usuń moją historię do daty…**, wskaż datę i potwierdź.
+Usunięcie obejmuje cały wybrany dzień i wcześniejsze dane; dla dzisiaj kończy się
+w chwili wykonania operacji, a kolejne nowe pomiary nadal są zapisywane.
+Usuwać można własną historię. Zapisana na serwerze granica usuwania blokuje
+ponowne dosłanie skasowanych pomiarów, również ze starszej wersji aplikacji.
+Jeśli ostatnia pozycja na bieżącej mapie też należy do usuwanego zakresu, znika.
+Operacja wymaga internetu. W razie błędu ponów ją, aby dokończyć fizyczne kasowanie;
+już zapisana granica nadal ukrywa dane. Nie kasuj ręcznie `historyDeletedThrough`,
+bo usuniesz ochronę przed przywróceniem z kolejki offline.
+
+Historia jest pobierana osobno, po jednej osobie i dniu, do 10 000 pomiarów na
+zapytanie (więcej niż 25 godzin pomiarów co 10 sekund). Otwarcie bieżącej mapy
+nie pobiera historii. Funkcja nie wymaga Functions, FCM, dodatkowego API tras ani
+zmiany planu Firebase; odczyty i zapisy podlegają limitom obecnego planu.
+
+Starsze dane są niewidoczne w historii po 30 dniach, a sprzątanie serwera wykonują
+aktywne aplikacje: przy otwarciu, przeglądaniu historii i co godzinę pracy usługi,
+w ograniczonych partiach, także dla osób, które opuściły rodzinę. Gdy wszystkie
+aplikacje są wyłączone, fizyczne dane pozostają do następnego sprzątania. Ścisłe
+kasowanie na serwerze bez działających telefonów wymagałoby zadania w chmurze.
+Ostatnia pozycja bieżącej mapy ma własny czas pomiaru i nie jest historią trasy.
 
 ## Materiały źródłowe
 

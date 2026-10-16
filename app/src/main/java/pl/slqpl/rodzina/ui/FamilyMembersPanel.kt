@@ -17,14 +17,17 @@ import androidx.compose.ui.platform.testTag
 import pl.slqpl.rodzina.cloud.FamilyIcon
 import pl.slqpl.rodzina.cloud.FamilyMember
 import pl.slqpl.rodzina.cloud.FamilyIcons
-import pl.slqpl.rodzina.cloud.LiveRequestState
+import pl.slqpl.rodzina.cloud.TrackingRequestState
+import pl.slqpl.rodzina.location.TrackingMode
 
 @Composable
 fun FamilyMembersPanel(
     members: List<FamilyMember>, currentUid: String, now: Long, busyUid: String?, message: String,
-    onRename: (String, String) -> Unit, onRequestLive: (String) -> Unit,
+    onRename: (String, String) -> Unit, onTracking: (String, TrackingMode) -> Unit,
     onChooseIcon: (FamilyIcon?) -> Unit,
     selectedUid: String? = null, mapsAvailable: Boolean = true, onShowMember: (String) -> Unit = {},
+    ownMode: TrackingMode? = null,
+    onShowHistory: (String) -> Unit = {},
 ) {
     var editingUid by remember { mutableStateOf<String?>(null) }
     var name by remember { mutableStateOf("") }
@@ -33,7 +36,7 @@ fun FamilyMembersPanel(
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Moja rodzina", style = MaterialTheme.typography.titleLarge)
-            Text("Każdy członek może zmieniać nazwy i włączać dokładne pomiary na telefonach z aktywnym udostępnianiem.",
+            Text("Każdy członek może zmieniać nazwy oraz włączać i wyłączać udostępnianie u siebie i pozostałych osób.",
                 style = MaterialTheme.typography.bodySmall)
             if (members.isEmpty()) Text("Oczekiwanie na listę członków. W razie błędu odśwież rodzinę w sekcji konta.")
             members.forEach { member -> key(member.uid) {
@@ -57,7 +60,8 @@ fun FamilyMembersPanel(
                 }, enabled = busyUid == null) { Text("Wybierz moją ikonkę") }
                 val available = member.device?.available(now) == true
                 Text(when {
-                    !available -> "Telefon nie potwierdza aktywnego udostępniania"
+                    member.device?.controllable(now) == true && !member.device.sharing -> "Udostępnianie wyłączone • można włączyć zdalnie"
+                    !available -> "Brak aktualnego potwierdzenia telefonu"
                     member.device?.mode == "live" && member.device.liveUntil > now ->
                         "Dokładne pomiary • pozostało ${remaining(member.device.liveUntil, now)}"
                     else -> "Udostępnia • tryb okresowy"
@@ -68,19 +72,25 @@ fun FamilyMembersPanel(
                         style = MaterialTheme.typography.bodySmall)
                 } ?: Text("Brak zapisanej pozycji", style = MaterialTheme.typography.bodySmall)
                 when (member.requestState(now)) {
-                    LiveRequestState.PENDING -> Text("Wysłano żądanie • oczekiwanie na telefon (${remaining(member.request!!.expiresAt, now)})")
-                    LiveRequestState.ACTIVE -> Text("Telefon potwierdził dokładne pomiary • ${remaining(member.request!!.expiresAt, now)}")
-                    LiveRequestState.STOPPED -> Text("Dokładne pomiary zatrzymano na tym telefonie")
-                    LiveRequestState.EXPIRED -> Text("Poprzednie żądanie wygasło")
-                    LiveRequestState.NONE -> Unit
+                    TrackingRequestState.PENDING -> Text("Wysłano: ${requestedMode(member.request!!.mode)} • oczekiwanie na telefon (${remaining(member.request.expiresAt, now)})")
+                    TrackingRequestState.CONFIRMED -> Text("Telefon potwierdził: ${requestedMode(member.request!!.mode)}")
+                    TrackingRequestState.CHANGED -> Text("Po potwierdzeniu telefon zmienił tryb")
+                    TrackingRequestState.FINISHED -> Text("Zakończono 15 minut dokładnych pomiarów")
+                    TrackingRequestState.EXPIRED -> Text("Polecenie wygasło bez potwierdzenia. Wyślij je ponownie.")
+                    TrackingRequestState.UNAVAILABLE -> Text("Polecenie było potwierdzone • telefon obecnie niedostępny")
+                    TrackingRequestState.NONE -> Unit
                 }
                 OutlinedButton(onClick = { editingUid = member.uid; name = member.name }, enabled = busyUid == null) {
                     Text("Zmień nazwę")
                 }
-                Button(onClick = { onRequestLive(member.uid) }, enabled = busyUid == null, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (busyUid == member.uid) "Zapisywanie…" else "Dokładne pomiary przez 15 minut")
+                OutlinedButton(onClick = { onShowHistory(member.uid) }, modifier = Modifier.testTag("member-history-${member.uid}")) {
+                    Text("Historia na mapie")
                 }
-                if (!available) Text("Żądanie zadziała po połączeniu telefonu, jeżeli udostępnianie będzie włączone. Wygasa po 15 minutach od wysłania.",
+                TrackingControls(member.uid, if (member.uid == currentUid && ownMode != null) ownMode
+                    else member.device?.takeIf { it.fresh(now) }?.mode?.let(TrackingMode::fromWire),
+                    enabled = busyUid == null, onSelect = { onTracking(member.uid, it) })
+                if (busyUid == member.uid) Text("Wysyłanie polecenia…")
+                if (member.device?.controllable(now) != true) Text("Zdalne sterowanie wymaga wersji 0.6.0 i włączonego sterowania rodzinnego na tym telefonie. Polecenie czeka maksymalnie 15 min; po restarcie lub pełnym zatrzymaniu aplikacji trzeba uruchomić sterowanie ponownie.",
                     style = MaterialTheme.typography.bodySmall)
             } }
             if (message.isNotBlank()) Text(message)
@@ -136,6 +146,12 @@ fun FamilyMembersPanel(
             enabled = busyUid == null) { Text("Zapisz") } },
         dismissButton = { TextButton(onClick = { choosingIcon = false }) { Text("Anuluj") } },
     )
+}
+
+private fun requestedMode(mode: TrackingMode) = when (mode) {
+    TrackingMode.PERIODIC -> "udostępnianie położenia"
+    TrackingMode.LIVE -> "dokładne pomiary przez 15 min"
+    TrackingMode.STOPPED -> "wyłączenie udostępniania"
 }
 
 private fun remaining(until: Long, now: Long): String {

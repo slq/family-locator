@@ -30,4 +30,13 @@ class TrackingPolicyTest {
         assertFalse(SamplePolicy.acceptable(52.0, 21.0, Float.NaN, 0))
         assertFalse(SamplePolicy.acceptable(52.0, 21.0, 0f, 0))
     }
+    @Test fun `off cancels all live deadlines and stays off past their expiry`() {
+        val policy = TrackingPolicy().apply { startLive(1_000) }
+        policy.setMode(TrackingMode.STOPPED, 2_000)
+        assertEquals(TrackingMode.STOPPED, policy.mode(2_000))
+        assertEquals(TrackingMode.STOPPED, policy.mode(2_000_000))
+        assertEquals(0L, policy.remainingSeconds(2_000))
+        policy.setMode(TrackingMode.PERIODIC, 3_000)
+        assertEquals(TrackingMode.PERIODIC, policy.mode(3_000))
+    }
 }

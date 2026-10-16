@@ -151,15 +151,20 @@ Zmiana sesji, rosteru albo dnia zamyka poprzednią subskrypcję i czyści stan w
 Trasa łączy pomiary, nie rekonstruuje przebiegu po drogach; luki ponad 15 min
 rozpoczynają nowy odcinek. Osobna mapa nie zmienia ustawień widoku bieżącej rodziny.
 
-Właściciel usuwa własne dane: transakcja najpierw podnosi monotoniczny
+Od 0.8.1 każdy obecny członek rodziny może usuwać historię dowolnego innego
+obecnego członka tej samej rodziny lub własną: transakcja najpierw podnosi monotoniczny
 `families/{familyId}/historyDeletedThrough/{uid}`, potem kasuje punkty partiami po
 1000 i transakcyjnie usuwa ostatnią pozycję, jeśli jej czas mieści się w zakresie.
 Równoległy nowszy pomiar przeżywa usuwanie. Reguły blokują stare zapisy także do
 `locations`, a Room usuwa skasowane próbki przy synchronizacji i po udanym kasowaniu.
 Data obejmuje wskazany lokalny dzień włącznie, a dzisiaj tylko czas do wykonania.
 Po błędzie użytkownik może ponowić kasowanie; granica nadal blokuje przywrócenie.
-Członkowie rodziny widzą trasy innych obecnych członków, ale nie mogą przesuwać
-ich granicy usunięcia. Mogą dokończyć kasowanie punktów już objętych granicą.
+Członkowie rodziny widzą trasy innych obecnych członków i mogą podnosić ich granicę
+usunięcia. Reguły wymagają członkostwa autora i wskazanej osoby w tej samej rodzinie.
+Potwierdzenie zachowuje UID i nazwę osoby z chwili rozpoczęcia operacji; odświeżenie
+widoku nie zmienia celu usuwania. Lokalna kolejka jest czyszczona według UID celu,
+więc usunięcie cudzej historii nie kasuje własnych próbek autora. Każdy aktywny
+członek może też dokończyć kasowanie danych już objętych zapisaną granicą.
 
 Retencja wynosi 30 × 24 h. Klient odrzuca stare próbki, zawęża widok i wykonuje
 ograniczone sprzątanie (maks. 5 × 1000 punktów na właściciela w jednym przebiegu)

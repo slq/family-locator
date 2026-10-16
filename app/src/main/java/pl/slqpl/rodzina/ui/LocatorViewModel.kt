@@ -90,13 +90,13 @@ class LocatorViewModel(application: Application) : AndroidViewModel(application)
 
     fun deleteHistory(target: String, throughDate: LocalDate) {
         val uid = user.value?.uid ?: return
-        if (target != uid || mutableHistoryBusy.value || mutableMemberBusy.value != null || mutableBusy.value) return
+        if (family.value.members.none { it.uid == target } || mutableHistoryBusy.value || mutableMemberBusy.value != null || mutableBusy.value) return
         mutableHistoryBusy.value = true
         mutableHistoryMessage.value = "Usuwanie historii…"
         viewModelScope.launch {
             try {
                 val through = withTimeout(120_000) { app.cloud.history.deleteThrough(uid, target, throughDate) }
-                app.database.locations().deleteThrough(uid, through)
+                app.database.locations().deleteThrough(target, through)
                 if (user.value?.uid == uid) mutableHistoryMessage.value = "Historia do wybranej daty została usunięta. Nowe pomiary będą nadal zapisywane."
             } catch (_: TimeoutCancellationException) {
                 app.cloud.cancelPendingWrites()

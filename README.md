@@ -27,7 +27,7 @@ i podgląd pozycji rodziny. Usługa jest uruchamiana świadomie z ekranu aplikac
 | Zdalne wznowienie po wyłączeniu udostępniania | Tak, gdy sterowanie rodzinne pozostaje włączone z widocznym powiadomieniem; wymagane 0.6.0 i nowe reguły |
 | Automatyczne rozpoznawanie ruchu / tryb 15 min w bezruchu | Następny etap |
 | Historia położenia | 30 dni; dowolny członek rodziny i wybrany dzień na osobnej mapie |
-| Usuwanie historii do daty | Własne dane, wskazany dzień włącznie; kolejka offline nie przywraca usuniętych punktów |
+| Usuwanie historii do daty | Dane dowolnego członka rodziny, wskazany dzień włącznie; kolejka offline nie przywraca usuniętych punktów |
 | Zaproszenia QR, geofencing | Kolejne etapy |
 | Automatyczne wznowienie po restarcie / ubiciu procesu | Nie; ponownie uruchom z aplikacji |
 

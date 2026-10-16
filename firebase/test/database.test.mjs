@@ -331,27 +331,48 @@ test('history rejects expired future malformed and forged timestamps', async () 
   }
 });
 
-test('deletion watermark is owner-only, monotonic and prevents resurrection even from old clients', async () => {
+test('every family member may delete another member history with a monotonic watermark that prevents resurrection', async () => {
   const now = Date.now(); const db = database('bob');
+  const alice = database('alice');
   await assertSucceeds(set(ref(db, `${historyPath('bob')}/old`), historyPoint(now - 5000)));
+  await assertSucceeds(set(ref(db, `${historyPath('bob')}/boundary`), historyPoint(now - 1000)));
   await assertSucceeds(set(ref(db, 'families/family-a/locations/bob'), point({ measuredAt: now - 5000 })));
-  await assertFails(set(ref(database('alice'), boundaryPath('bob')), now));
   await assertFails(set(ref(database('eve'), boundaryPath('bob')), now));
+  await assertFails(set(ref(database(), boundaryPath('bob')), now));
   await assertFails(set(ref(db, `${historyPath('bob')}/old`), null));
-  await assertSucceeds(set(ref(db, boundaryPath('bob')), now - 1000));
+  await assertSucceeds(set(ref(alice, boundaryPath('bob')), now - 1000));
+  const deleted = await assertSucceeds(get(cleanupQuery(alice, 'bob', now - 1000)));
+  assert.deepEqual(Object.keys(deleted.val()).sort(), ['boundary', 'old']);
   await assertFails(set(ref(db, boundaryPath('bob')), now - 2000));
+  await assertFails(set(ref(alice, boundaryPath('bob')), now - 2000));
   await assertFails(set(ref(db, boundaryPath('bob')), now + 120000));
   await assertFails(set(ref(db, boundaryPath('bob')), now + 0.5));
   await assertFails(set(ref(db, boundaryPath('bob')), null));
-  await assertSucceeds(set(ref(db, `${historyPath('bob')}/old`), null));
-  await assertSucceeds(set(ref(db, 'families/family-a/locations/bob'), null));
+  await assertSucceeds(set(ref(alice, `${historyPath('bob')}/old`), null));
+  await assertSucceeds(set(ref(alice, `${historyPath('bob')}/boundary`), null));
+  await assertSucceeds(set(ref(alice, 'families/family-a/locations/bob'), null));
   await assertFails(set(ref(db, `${historyPath('bob')}/old-retry`), historyPoint(now - 5000)));
   await assertFails(set(ref(db, 'families/family-a/locations/bob'), point({ measuredAt: now - 5000 })));
   await assertSucceeds(set(ref(db, `${historyPath('bob')}/new`), historyPoint(now)));
   await assertSucceeds(set(ref(db, 'families/family-a/locations/bob'), point({ measuredAt: now })));
   await assertFails(set(ref(db, 'families/family-a/locations/bob'), null));
+  await assertFails(set(ref(alice, `${historyPath('bob')}/new`), null));
+  await assertFails(get(cleanupQuery(database('eve'), 'bob', now - 1000)));
   await assertFails(get(historyQuery(database('alice'), 'bob', now - 10000, now + 1000)));
   assert.equal((await assertSucceeds(get(historyQuery(database('alice'), 'bob', now, now + 1000)))).size, 1);
+  await assertSucceeds(set(ref(db, boundaryPath('bob')), now)); // Self-deletion remains available.
+});
+
+test('history deletion rejects targets outside the family and authors whose membership was revoked', async () => {
+  const now = Date.now(); const alice = database('alice');
+  for (const target of ['eve', 'missing', 'gone']) {
+    await assertFails(set(ref(alice, boundaryPath(target)), now));
+  }
+  await assertSucceeds(set(ref(alice, boundaryPath('bob')), now - 1000));
+  await env.withSecurityRulesDisabled(context => set(ref(context.database(), 'memberships/alice'), null));
+  await assertFails(set(ref(alice, boundaryPath('bob')), now));
+  await assertFails(get(cleanupQuery(alice, 'bob', now - 1000)));
+  await assertSucceeds(set(ref(database('bob'), boundaryPath('bob')), now));
 });
 
 test('bounded cleanup removes expired history for inactive and departed members without deleting recent points', async () => {

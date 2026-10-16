@@ -24,7 +24,7 @@ class HistoryPanelTest {
     private val today = HistoryPolicy.day(now)
     private val members = listOf("alice", "bob").map { FamilyMember(it, it, null, null, null, null) }
 
-    @Test fun selectingAnyFamilyMemberAndDayLoadsTheirHistoryButDeletionBelongsToTheOwner() {
+    @Test fun selectingAnyFamilyMemberAndDayLoadsTheirHistoryAndAllowsDeletion() {
         val loaded = mutableListOf<HistorySelection>()
         val state = mutableStateOf(HistorySnapshot())
         compose.setContent { LocatorTheme {
@@ -38,7 +38,7 @@ class HistoryPanelTest {
         compose.onNodeWithTag("history-person-bob").performClick()
 
         compose.onNodeWithTag("history-empty").assertExists()
-        compose.onNodeWithTag("history-delete").assertDoesNotExist()
+        compose.onNodeWithTag("history-delete").assertExists()
         compose.onNodeWithContentDescription("Poprzedni dzień").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(listOf(HistorySelection("bob", today), HistorySelection("bob", today.minusDays(1))), loaded) }
     }
@@ -60,6 +60,39 @@ class HistoryPanelTest {
         compose.onNodeWithTag("history-confirm-date").performClick()
         compose.onNodeWithTag("history-confirm-delete").performClick()
         compose.runOnIdle { assertEquals(listOf("alice" to today), deletions) }
+    }
+
+    @Test fun deletingAnotherMemberKeepsTheConfirmedPersonWhenTheLoadedSelectionChanges() {
+        val deletions = mutableListOf<Pair<String, LocalDate>>()
+        val state = mutableStateOf(HistorySnapshot(HistorySelection("bob", today)))
+        compose.setContent { LocatorTheme {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                HistoryPanel(members, "alice", now, state.value, false, "", false,
+                    onShow = { _, _ -> }, onDelete = { uid, date -> deletions += uid to date })
+            }
+        } }
+        compose.onNodeWithTag("history-delete").performScrollTo().performClick()
+        compose.onNodeWithTag("history-confirm-date").performClick()
+        compose.onNodeWithText("Usuniesz historię osoby bob", substring = true).assertExists()
+        compose.runOnIdle { state.value = HistorySnapshot(HistorySelection("alice", today)) }
+        compose.onNodeWithText("Usuniesz historię osoby bob", substring = true).assertExists()
+        compose.onNodeWithTag("history-confirm-delete").performClick()
+        compose.runOnIdle { assertEquals(listOf("bob" to today), deletions) }
+    }
+
+    @Test fun removingTheTargetFromTheFamilyDisablesThePendingConfirmation() {
+        val roster = mutableStateOf(members)
+        compose.setContent { LocatorTheme {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                HistoryPanel(roster.value, "alice", now, HistorySnapshot(HistorySelection("bob", today)), false, "", false,
+                    onShow = { _, _ -> }, onDelete = { _, _ -> error("A removed member cannot be deleted") })
+            }
+        } }
+        compose.onNodeWithTag("history-delete").performScrollTo().performClick()
+        compose.onNodeWithTag("history-confirm-date").performClick()
+        compose.runOnIdle { roster.value = members.filter { it.uid != "bob" } }
+        compose.onNodeWithTag("history-confirm-delete").assertIsNotEnabled()
+        compose.onNodeWithText("Anuluj").performClick()
     }
 
     @Test fun routeFitsAllPointsAndTheTimeSliderFocusesAnIndividualMeasurement() {

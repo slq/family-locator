@@ -2,22 +2,29 @@ package pl.slqpl.rodzina.location
 
 import android.content.Context
 import androidx.room.Room
+import androidx.lifecycle.ViewModelStore
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import pl.slqpl.rodzina.cloud.*
+import pl.slqpl.rodzina.FamilyLocatorApp
 import pl.slqpl.rodzina.data.LocationDatabase
 import pl.slqpl.rodzina.data.LocationSample
+import pl.slqpl.rodzina.ui.LocatorViewModel
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.ZoneId
@@ -111,7 +118,31 @@ class HistoryIntegrationTest {
             assertEquals(listOf(fresh.pointKey), route(today).points.map { it.id })
             assertFalse(admin("families/$family").has("history"))
             owner.upload(last, "Bob")
-            val cutoff = withTimeout(20_000) { owner.history.deleteThrough(bob, bob, yesterday, zone) }
+            // The real ViewModel must delete Bob's local cache, never Alice's own samples.
+            val app = context.applicationContext as FamilyLocatorApp
+            assertFalse("Start this test with the sharing service stopped", app.tracking.status.value.running)
+            val room = Room.inMemoryDatabaseBuilder(context, LocationDatabase::class.java).build()
+            val viewModels = ViewModelStore()
+            app.testCloud = viewer; app.testDatabase = room
+            try {
+                room.locations().insert(first.copy(ownerUid = alice))
+                room.locations().insert(last)
+                val model = withContext(Dispatchers.Main) { LocatorViewModel(app).also { viewModels.put("history", it) } }
+                val collecting = launch { model.family.collect() }
+                try {
+                    withTimeout(15_000) { model.family.first { it.members.any { member -> member.uid == bob } } }
+                    withContext(Dispatchers.Main) { model.deleteHistory(bob, yesterday) }
+                    withTimeout(20_000) { model.historyBusy.first { !it } }
+                    assertTrue(model.historyMessage.value, model.historyMessage.value.contains("została usunięta"))
+                    assertEquals(listOf(first.pointKey), room.locations().pending(alice, 200).map { it.pointKey })
+                    assertTrue(room.locations().pending(bob, 200).isEmpty())
+                } finally { collecting.cancel() }
+            } finally {
+                withContext(Dispatchers.Main) { viewModels.clear() }
+                app.testCloud = null; app.testDatabase = null
+                room.close()
+            }
+            val cutoff = admin("families/$family/historyDeletedThrough").getLong(bob)
             assertEquals(midnight - 1, cutoff)
             assertTrue(route(yesterday).points.isEmpty())
             assertEquals(listOf(fresh.pointKey), route(today).points.map { it.id })
@@ -122,7 +153,8 @@ class HistoryIntegrationTest {
             val stale = HistoryUploadContext(family, bob, 0, System.currentTimeMillis())
             try { owner.history.store(stale, listOf(last)); fail("Deleted point was restored") }
             catch (_: com.google.firebase.database.DatabaseException) { }
-            try { viewer.history.deleteThrough(alice, bob, yesterday, zone); fail("Another member deleted Bob's data") }
+            assertEquals(cutoff, owner.history.deleteThrough(bob, bob, yesterday, zone))
+            try { viewer.history.deleteThrough(alice, "outside-family", yesterday, zone); fail("A non-member's history was deleted") }
             catch (_: IllegalArgumentException) { }
             // Exercise paginated deletion and automatic cleanup of a departed member's expired points.
             val oldTime = now - 31 * 86_400_000L

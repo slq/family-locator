@@ -17,6 +17,7 @@ import java.util.Locale
 
 private val historyDateFormat = DateTimeFormatter.ofPattern("dd.MM.yyyy")
 private val historyShortDate = DateTimeFormatter.ofPattern("d MMM", Locale.forLanguageTag("pl"))
+private data class HistoryDeletionTarget(val uid: String, val name: String)
 
 @Composable
 fun HistoryPanel(
@@ -33,6 +34,7 @@ fun HistoryPanel(
     var selectingPerson by remember { mutableStateOf(false) }
     var pickingDay by remember { mutableStateOf(false) }
     var pickingDeleteDate by remember { mutableStateOf(false) }
+    var deleteTarget by remember { mutableStateOf<HistoryDeletionTarget?>(null) }
     var confirmDeleteDay by remember { mutableStateOf<LocalDate?>(null) }
     LaunchedEffect(state.selection) {
         state.selection?.let { uid = it.uid; selectedDay = it.day.toEpochDay() }
@@ -85,13 +87,17 @@ fun HistoryPanel(
         Text("Daty i godziny w strefie czasowej tego telefonu.", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        if (uid == currentUid && member != null) {
-            TextButton(onClick = { pickingDeleteDate = true }, enabled = !busy,
+        if (member != null) {
+            TextButton(onClick = {
+                deleteTarget = HistoryDeletionTarget(member.uid, member.name)
+                pickingDeleteDate = true
+            }, enabled = !busy,
                 modifier = Modifier.testTag("history-delete"),
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                Text("Usuń moją historię do daty…")
+                Text(if (uid == currentUid) "Usuń moją historię do daty…" else "Usuń historię tej osoby do daty…")
             }
-        } else Text("Historię może usuwać jej właściciel.", style = MaterialTheme.typography.bodySmall)
+            Text("Każdy członek rodziny może usuwać historię dowolnej osoby z rodziny.", style = MaterialTheme.typography.bodySmall)
+        }
         Spacer(Modifier.height(8.dp))
     }
     if (pickingDay) HistoryDateDialog("Dzień historii", day, oldest, today,
@@ -99,13 +105,14 @@ fun HistoryPanel(
             selectedDay = it.toEpochDay(); pickingDay = false; if (member != null) onShow(uid, it)
         })
     if (pickingDeleteDate) HistoryDateDialog("Usuń historię do daty", day, LocalDate.of(1970, 1, 1), today,
-        onDismiss = { pickingDeleteDate = false }, onConfirm = { confirmDeleteDay = it; pickingDeleteDate = false })
-    confirmDeleteDay?.let { date -> AlertDialog(onDismissRequest = { confirmDeleteDay = null },
+        onDismiss = { pickingDeleteDate = false; deleteTarget = null }, onConfirm = { confirmDeleteDay = it; pickingDeleteDate = false })
+    confirmDeleteDay?.let { date -> deleteTarget?.let { target -> AlertDialog(onDismissRequest = { confirmDeleteDay = null; deleteTarget = null },
         title = { Text("Usunąć historię?") },
-        text = { Text("Usuniesz historię osoby ${member?.name.orEmpty()} do ${date.format(historyDateFormat)} włącznie${if (date == today) " (dzisiaj: do teraz)" else ""}. Starsza ostatnia pozycja zniknie również z bieżącej mapy. Tej operacji nie można cofnąć. Nowe pomiary będą nadal zapisywane.") },
-        confirmButton = { TextButton(onClick = { confirmDeleteDay = null; onDelete(uid, date) }, enabled = !busy && uid == currentUid,
+        text = { Text("Usuniesz historię osoby ${target.name} do ${date.format(historyDateFormat)} włącznie${if (date == today) " (dzisiaj: do teraz)" else ""}. Starsza ostatnia pozycja zniknie również z bieżącej mapy. Tej operacji nie można cofnąć. Nowe pomiary będą nadal zapisywane.") },
+        confirmButton = { TextButton(onClick = { confirmDeleteDay = null; deleteTarget = null; onDelete(target.uid, date) },
+            enabled = !busy && members.any { it.uid == target.uid } && members.any { it.uid == currentUid },
             modifier = Modifier.testTag("history-confirm-delete")) { Text("Usuń") } },
-        dismissButton = { TextButton(onClick = { confirmDeleteDay = null }) { Text("Anuluj") } }) }
+        dismissButton = { TextButton(onClick = { confirmDeleteDay = null; deleteTarget = null }) { Text("Anuluj") } }) } }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

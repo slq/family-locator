@@ -51,7 +51,9 @@ Nie wrzucaj prawdziwych współrzędnych do publicznych issues.
 | Historia po 30 dniach / pierwszy niepełny dzień / zmiana czasu | Zakres 30 × 24 h, prawidłowe lokalne daty 23/25 h; starsze punkty sprzątane przy aktywnej aplikacji |
 | Usunięcie własnej historii do wczoraj | Potwierdzenie; wskazany dzień włącznie znika na obu telefonach, dzisiaj pozostaje |
 | Usunięcie historii do dzisiaj przy aktywnym udostępnianiu | Dotychczasowe punkty znikają; nowsze są nadal zapisywane; stara ostatnia pozycja nie wraca |
-| Usuwanie innej osoby / inna rodzina | W UI brak akcji; reguły odrzucają zapis granicy usuwania |
+| Usuwanie historii innej osoby w rodzinie | Przycisk dostępny; potwierdzenie wskazuje właściwą osobę i datę; własna historia autora pozostaje |
+| Zmiana wczytanej osoby podczas potwierdzenia usunięcia | Cel i nazwa w potwierdzeniu pozostają takie same; usuwana jest wyłącznie potwierdzana osoba |
+| Usuwanie osoby z innej rodziny / cofnięte członkostwo | Reguły odrzucają zapis granicy usuwania; po usunięciu osoby z listy potwierdzenie jest nieaktywne |
 | Usunięcie, potem synchronizacja starej kolejki offline | Usunięte punkty nie wracają; nowe trafiają do historii |
 | Aktualizacja 0.6 → 0.7 z punktami offline | Room zachowuje punkty i nadaje trwałe klucze; ponowienie nie dubluje historii |
 | Brak internetu / stare reguły przy historii | Czytelny błąd i ponowienie; brak fałszywego potwierdzenia kasowania |

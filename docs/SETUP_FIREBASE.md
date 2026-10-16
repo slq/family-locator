@@ -35,13 +35,15 @@ npx firebase login
 npx firebase deploy --only database --project TWOJ_PROJECT_ID
 ```
 
-**Przy aktualizacji do 0.7.0 ponownie wklej aktualne reguły w Realtime Database → Rules i kliknij Publish przed instalacją APK.** Zawierają
+**Przy aktualizacji do 0.8.1 ponownie wklej aktualne reguły w Realtime Database → Rules i kliknij Publish przed instalacją APK.** Zawierają
 indeks `familyId`, odczyt listy własnej rodziny oraz walidację nazw, żądań i potwierdzeń.
 Od 0.4.0 zezwalają również na zapis własnej ikonki w `memberIcons/{uid}`. Od 0.6.0 obsługują `trackingRequests`, `trackingAcks` i `devices/{uid}/controlReady`.
 Od 0.7.0 dodają indeksowaną historię `history/{familyId}/{uid}`,
 `historyOwners` oraz granicę usuwania `historyDeletedThrough`. Dotychczasowe
 przypisania `memberships` i pozycje pozostają zgodne; nie importuj bazy od nowa.
 Lokalna baza Room aktualizuje się automatycznie z zachowaniem kolejki.
+Od 0.8.1 reguły pozwalają każdemu obecnemu członkowi rodziny usuwać historię
+dowolnego obecnego członka tej samej rodziny.
 
 Zalogowanie CLI odbywa się na Twoim komputerze. Nie przekazuj tokena logowania
 ani pliku konta serwisowego w czacie i nie umieszczaj ich w repozytorium.
@@ -162,10 +164,14 @@ koniec oraz linię między pomiarami; suwakiem wybierzesz konkretną godzinę i 
 łączone linią. Daty i godziny odnoszą się do strefy telefonu przeglądającego dane.
 Zakres to ruchome 30 dni, więc pierwszy dostępny dzień może być niepełny.
 
-Wybierając siebie, użyj **Usuń moją historię do daty…**, wskaż datę i potwierdź.
+Wybierz dowolnego członka rodziny, użyj **Usuń historię tej osoby do daty…**
+(przy sobie: **Usuń moją historię do daty…**), wskaż datę i potwierdź.
 Usunięcie obejmuje cały wybrany dzień i wcześniejsze dane; dla dzisiaj kończy się
 w chwili wykonania operacji, a kolejne nowe pomiary nadal są zapisywane.
-Usuwać można własną historię. Zapisana na serwerze granica usuwania blokuje
+Od 0.8.1 każdy obecny członek może usuwać historię dowolnej osoby z tej samej
+rodziny. Wymaga to ponownego opublikowania aktualnych reguł Firebase. Potwierdzenie
+wskazuje osobę i datę, a ich wybór nie zmienia się przy odświeżeniu widoku.
+Zapisana na serwerze granica usuwania blokuje
 ponowne dosłanie skasowanych pomiarów, również ze starszej wersji aplikacji.
 Jeśli ostatnia pozycja na bieżącej mapie też należy do usuwanego zakresu, znika.
 Operacja wymaga internetu. W razie błędu ponów ją, aby dokończyć fizyczne kasowanie;

@@ -31,8 +31,8 @@ android {
         minSdk = 26
         targetSdk = 35
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = providers.gradleProperty("appVersionCode").getOrElse("8").toInt().also { require(it > 0) }
-        versionName = providers.gradleProperty("appVersionName").getOrElse("0.8.0").also {
+        versionCode = providers.gradleProperty("appVersionCode").getOrElse("9").toInt().also { require(it > 0) }
+        versionName = providers.gradleProperty("appVersionName").getOrElse("0.8.1").also {
             require(it.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+"))) { "Use a version such as 0.2.0" }
         }
         buildConfigField("boolean", "FIREBASE_CONFIGURED", firebaseConfigured.toString())

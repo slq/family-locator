@@ -95,8 +95,9 @@ class FamilyHistory(
 
     /** The monotonic watermark is committed first, so offline points cannot restore a deleted day. */
     suspend fun deleteThrough(uid: String, targetUid: String, date: LocalDate, zone: ZoneId = ZoneId.systemDefault()): Long {
-        require(uid == targetUid) { "Możesz usunąć tylko własną historię" }
         val id = familyId(uid)
+        val members = database.getReference("memberships").orderByChild("familyId").equalTo(id).get().await()
+        require(members.hasChild(targetUid)) { "Osoba nie należy do Twojej rodziny" }
         val cutoff = HistoryPolicy.deletionCutoff(date, now(), zone)
         requireUser(uid)
         val effective = advanceBoundary(database.getReference("families/$id/historyDeletedThrough/$targetUid"), cutoff)
@@ -111,10 +112,10 @@ class FamilyHistory(
         val id = familyId(uid)
         val expired = now() - HistoryPolicy.RETENTION_MILLIS - 2_000
         val owners = database.getReference("families/$id/historyOwners").get().await().children.mapNotNull { it.key }
+        val boundaries = database.getReference("families/$id/historyDeletedThrough").get().await()
         for (owner in owners) {
             requireUser(uid)
-            val deleted = if (owner == uid) database.getReference("families/$id/historyDeletedThrough/$owner")
-                .get().await().getValue(Long::class.java) ?: 0 else 0
+            val deleted = boundaries.child(owner).getValue(Long::class.java) ?: 0
             deletePages(uid, id, owner, maxOf(expired, deleted), 5)
         }
     }
